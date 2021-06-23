@@ -21,7 +21,6 @@ import diagnostic_updater, diagnostic_msgs.msg
 import time
 import math
 import traceback
-import queue
 
 from odrive_ros.odrive_interface import ODriveInterfaceAPI, ODriveFailure
 from odrive_ros.odrive_interface import ChannelDamagedException
@@ -104,7 +103,7 @@ class ODriveNode(object):
         self.odom_topic      = get_param('~odom_topic', "odom")
         self.odom_frame      = get_param('~odom_frame', "odom")
         self.base_frame      = get_param('~base_frame', "base_link")
-        self.odom_calc_hz    = get_param('~odom_calc_hz', 50)
+        self.odom_calc_hz    = get_param('~odom_calc_hz', 10)
         
         rospy.on_shutdown(self.terminate)
 
@@ -123,7 +122,7 @@ class ODriveNode(object):
         self.status = "disconnected"
         self.status_pub.publish(self.status)
         
-        self.command_queue = queue.Queue(maxsize=5)
+        self.command = None
         self.vel_subscribe = rospy.Subscriber("/cmd_vel", Twist, self.cmd_vel_callback, queue_size=2)
         
         self.publish_diagnostics = True
@@ -358,21 +357,18 @@ class ODriveNode(object):
         
         # handle sending drive commands.
         # from here, any errors return to get out
-        if self.fast_timer_comms_active and not self.command_queue.empty():
+        if self.fast_timer_comms_active and self.command != None:
             # check to see if we're initialised and engaged motor
             try:
                 if not self.driver.has_prerolled(): #ensure_prerolled():
                     rospy.logwarn_throttle(5.0, "ODrive has not been prerolled, ignoring drive command.")
-                    motor_command = self.command_queue.get_nowait()
                     return
             except:
                 rospy.logerr("Fast timer exception on preroll." + traceback.format_exc())
                 self.fast_timer_comms_active = False                
-            try:
-                motor_command = self.command_queue.get_nowait()
-            except queue.Empty:
-                rospy.logerr("Queue was empty??" + traceback.format_exc())
-                return
+            
+            motor_command = self.command
+            self.command = None
             
             if motor_command[0] == 'drive':
                 try:                    
@@ -392,9 +388,6 @@ class ODriveNode(object):
                     rospy.logerr("motor drive unknown failure:" + traceback.format_exc())
                     self.fast_timer_comms_active = False
 
-            elif motor_command[0] == 'release':
-                pass
-            # ?
             else:
                 pass
     
@@ -514,37 +507,8 @@ class ODriveNode(object):
         return left_linear_val, right_linear_val
 
     def cmd_vel_callback(self, msg):
-        #rospy.loginfo("Received a /cmd_vel message!")
-        #rospy.loginfo("Linear Components: [%f, %f, %f]"%(msg.linear.x, msg.linear.y, msg.linear.z))
-        #rospy.loginfo("Angular Components: [%f, %f, %f]"%(msg.angular.x, msg.angular.y, msg.angular.z))
-
-        # rostopic pub -r 1 /commands/motor/current std_msgs/Float64 -- -1.0
-
-        # Do velocity processing here:
-        # Use the kinematics of your robot to map linear and angular velocities into motor commands
-        
-        # 3600 ERPM = 360 RPM ~= 6 km/hr
-        
-        #angular_to_linear = msg.angular.z * (wheel_track/2.0) 
-        #left_linear_rpm  = (msg.linear.x - angular_to_linear) * m_s_to_erpm
-        #right_linear_rpm = (msg.linear.x + angular_to_linear) * m_s_to_erpm
         left_linear_val, right_linear_val = self.convert(msg.linear.x, msg.angular.z)
-        
-        # if wheel speed = 0, stop publishing after sending 0 once. #TODO add error term, work out why VESC turns on for 0 rpm
-        
-        # Then set your wheel speeds (using wheel_left and wheel_right as examples)
-        #self.left_motor_pub.publish(left_linear_rpm)
-        #self.right_motor_pub.publish(right_linear_rpm)
-        #wheel_left.set_speed(v_l)
-        #wheel_right.set_speed(v_r)
-        
-        #rospy.logdebug("Driving left: %d, right: %d, from linear.x %.2f and angular.z %.2f" % (left_linear_val, right_linear_val, msg.linear.x, msg.angular.z))
-        try:
-            drive_command = ('drive', (left_linear_val, right_linear_val))
-            self.command_queue.put_nowait(drive_command)
-        except queue.Full:
-            pass
-            
+        self.command = ('drive', (left_linear_val, right_linear_val))
         self.last_cmd_vel_time = rospy.Time.now()
         
     def pub_diagnostics(self, stat):
@@ -716,7 +680,7 @@ class ODriveNode(object):
 
 def start_odrive():
     rospy.init_node('odrive')
-    odrive_node = ODriveNode()
+    odrive_node = ODriveNode()  
     odrive_node.main_loop()
     #rospy.spin() 
     
