@@ -21,11 +21,11 @@ import diagnostic_updater, diagnostic_msgs.msg
 import time
 import math
 import traceback
-import Queue
+import queue
 
-from odrive_interface import ODriveInterfaceAPI, ODriveFailure
-from odrive_interface import ChannelBrokenException, ChannelDamagedException
-from odrive_simulator import ODriveInterfaceSimulator
+from odrive_ros.odrive_interface import ODriveInterfaceAPI, ODriveFailure
+from odrive_ros.odrive_interface import ChannelDamagedException
+from odrive_ros.odrive_simulator import ODriveInterfaceSimulator
 
 class ROSLogger(object):
     """Imitate a standard Python logger, but pass the messages to rospy logging.
@@ -69,7 +69,7 @@ class ODriveNode(object):
     encoder_counts_per_rev = None
     m_s_to_value = 1.0
     axis_for_right = 0
-    encoder_cpr = 4096
+    encoder_cpr = 10000
     
     # Startup parameters
     connect_on_startup = False
@@ -104,7 +104,7 @@ class ODriveNode(object):
         self.odom_topic      = get_param('~odom_topic', "odom")
         self.odom_frame      = get_param('~odom_frame', "odom")
         self.base_frame      = get_param('~base_frame', "base_link")
-        self.odom_calc_hz    = get_param('~odom_calc_hz', 10)
+        self.odom_calc_hz    = get_param('~odom_calc_hz', 50)
         
         rospy.on_shutdown(self.terminate)
 
@@ -123,7 +123,7 @@ class ODriveNode(object):
         self.status = "disconnected"
         self.status_pub.publish(self.status)
         
-        self.command_queue = Queue.Queue(maxsize=5)
+        self.command_queue = queue.Queue(maxsize=5)
         self.vel_subscribe = rospy.Subscriber("/cmd_vel", Twist, self.cmd_vel_callback, queue_size=2)
         
         self.publish_diagnostics = True
@@ -136,22 +136,12 @@ class ODriveNode(object):
             self.temperature_publisher_left  = rospy.Publisher('left/temperature', Float64, queue_size=2)
             self.temperature_publisher_right = rospy.Publisher('right/temperature', Float64, queue_size=2)
         
-        self.i2t_error_latch = False
         if self.publish_current:
-            #self.current_loop_count = 0
-            #self.left_current_accumulator  = 0.0
-            #self.right_current_accumulator = 0.0
             self.current_publisher_left  = rospy.Publisher('left/current', Float64, queue_size=2)
             self.current_publisher_right = rospy.Publisher('right/current', Float64, queue_size=2)
-            self.i2t_publisher_left  = rospy.Publisher('left/i2t', Float64, queue_size=2)
-            self.i2t_publisher_right = rospy.Publisher('right/i2t', Float64, queue_size=2)
-            
+         
             rospy.logdebug("ODrive will publish motor currents.")
-            
-            self.i2t_resume_threshold  = get_param('~i2t_resume_threshold',  222)            
-            self.i2t_warning_threshold = get_param('~i2t_warning_threshold', 333)
-            self.i2t_error_threshold   = get_param('~i2t_error_threshold',   666)
-        
+
         self.last_cmd_vel_time = rospy.Time.now()
         
         if self.publish_raw_odom:
@@ -309,9 +299,9 @@ class ODriveNode(object):
                     self.m_s_to_value = self.encoder_cpr/self.tyre_circumference # calculated
                 
                     self.driver.update_time(time_now.to_sec())
-                    self.vel_l = self.driver.left_vel_estimate()   # units: encoder counts/s
+                    self.vel_l = -self.driver.left_vel_estimate()   # units: encoder counts/s
                     self.vel_r = -self.driver.right_vel_estimate() # neg is forward for right
-                    self.new_pos_l = self.driver.left_pos()        # units: encoder counts
+                    self.new_pos_l = -self.driver.left_pos()        # units: encoder counts
                     self.new_pos_r = -self.driver.right_pos()      # sign!
                     
                     # for temperatures
@@ -323,7 +313,7 @@ class ODriveNode(object):
                     # voltage
                     self.bus_voltage = self.driver.bus_voltage()
                     
-            except (ChannelBrokenException, ChannelDamagedException):
+            except (ChannelDamagedException):
                 rospy.logerr("ODrive USB connection failure in fast_timer." + traceback.format_exc(1))
                 self.fast_timer_comms_active = False
                 self.status = "disconnected"
@@ -380,16 +370,12 @@ class ODriveNode(object):
                 self.fast_timer_comms_active = False                
             try:
                 motor_command = self.command_queue.get_nowait()
-            except Queue.Empty:
+            except queue.Empty:
                 rospy.logerr("Queue was empty??" + traceback.format_exc())
                 return
             
             if motor_command[0] == 'drive':
-                try:
-                    if self.publish_current and self.i2t_error_latch:
-                        # have exceeded i2t bounds
-                        return
-                    
+                try:                    
                     if not self.driver.engaged():
                         self.driver.engage()
                         self.status = "engaged"
@@ -438,8 +424,8 @@ class ODriveNode(object):
         self.m_s_to_value = self.driver.encoder_cpr/self.tyre_circumference
         
         if self.publish_odom:
-            self.old_pos_l = self.driver.left_axis.encoder.pos_cpr
-            self.old_pos_r = self.driver.right_axis.encoder.pos_cpr
+            self.old_pos_l = self.driver.left_axis.encoder.pos_cpr_counts
+            self.old_pos_r = self.driver.right_axis.encoder.pos_cpr_counts
         
         self.fast_timer_comms_active = True
         
@@ -522,8 +508,8 @@ class ODriveNode(object):
     
     def convert(self, forward, ccw):
         angular_to_linear = ccw * (self.wheel_track/2.0) 
-        left_linear_val  = int((forward - angular_to_linear) * self.m_s_to_value)
-        right_linear_val = int((forward + angular_to_linear) * self.m_s_to_value)
+        left_linear_val  = int((forward - angular_to_linear) / self.tyre_circumference)
+        right_linear_val = int((forward + angular_to_linear) / self.tyre_circumference)
     
         return left_linear_val, right_linear_val
 
@@ -556,7 +542,7 @@ class ODriveNode(object):
         try:
             drive_command = ('drive', (left_linear_val, right_linear_val))
             self.command_queue.put_nowait(drive_command)
-        except Queue.Full:
+        except queue.Full:
             pass
             
         self.last_cmd_vel_time = rospy.Time.now()
@@ -572,26 +558,12 @@ class ODriveNode(object):
         stat.add("Motor current L (A)", round(self.current_l,1))
         stat.add("Motor current R (A)", round(self.current_r,1))
         stat.add("Voltage (V)", round(self.bus_voltage,2))
-        stat.add("Motor i2t L", round(self.left_energy_acc,1))
-        stat.add("Motor i2t R", round(self.right_energy_acc,1))
         
         # https://github.com/ros/common_msgs/blob/jade-devel/diagnostic_msgs/msg/DiagnosticStatus.msg
         if self.status == "disconnected":
             stat.summary(diagnostic_msgs.msg.DiagnosticStatus.WARN, "Not connected")
         else:
-            if self.i2t_error_latch:
-                stat.summary(diagnostic_msgs.msg.DiagnosticStatus.ERROR, "i2t overheated, drive ignored until cool")
-            elif self.left_energy_acc > self.i2t_warning_threshold:
-                stat.summary(diagnostic_msgs.msg.DiagnosticStatus.WARN, "Left motor over i2t warning threshold")
-            elif self.left_energy_acc > self.i2t_error_threshold:
-                stat.summary(diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Left motor over i2t error threshold")
-            elif self.right_energy_acc > self.i2t_warning_threshold:
-                stat.summary(diagnostic_msgs.msg.DiagnosticStatus.WARN, "Right motor over i2t warning threshold")
-            elif self.right_energy_acc > self.i2t_error_threshold:
-                stat.summary(diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Right motor over i2t error threshold")
-            # Everything is okay:
-            else:
-                stat.summary(diagnostic_msgs.msg.DiagnosticStatus.OK, "Running")
+            stat.summary(diagnostic_msgs.msg.DiagnosticStatus.OK, "Running")
         
         
     def pub_temperatures(self):
@@ -614,68 +586,12 @@ class ODriveNode(object):
         self.temperature_publisher_left.publish(self.temp_v_l)
         self.temperature_publisher_right.publish(self.temp_v_r)
         
-    # Current publishing and i2t calculation
-    i2t_current_nominal = 2.0
-    i2t_update_rate = 0.01
-    
+    # Current publishing     
     def pub_current(self):
         self.current_publisher_left.publish(float(self.current_l))
         self.current_publisher_right.publish(float(self.current_r))
         
-        now = time.time()
-        
-        if not hasattr(self, 'last_pub_current_time'):
-            self.last_pub_current_time = now
-            self.left_energy_acc = 0
-            self.right_energy_acc = 0
-            return
-            
-        # calculate and publish i2t
-        dt = now - self.last_pub_current_time
-        
-        power = max(0, self.current_l**2 - self.i2t_current_nominal**2)
-        energy = power * dt
-        self.left_energy_acc *= 1 - self.i2t_update_rate * dt
-        self.left_energy_acc += energy
-        
-        power = max(0, self.current_r**2 - self.i2t_current_nominal**2)
-        energy = power * dt
-        self.right_energy_acc *= 1 - self.i2t_update_rate * dt
-        self.right_energy_acc += energy
-        
-        self.last_pub_current_time = now
-        
-        self.i2t_publisher_left.publish(float(self.left_energy_acc))
-        self.i2t_publisher_right.publish(float(self.right_energy_acc))
-        
-        # stop odrive if overheated
-        if self.left_energy_acc > self.i2t_error_threshold or self.right_energy_acc > self.i2t_error_threshold:
-            if not self.i2t_error_latch:
-                self.driver.release()
-                self.status = "overheated"
-                self.i2t_error_latch = True
-                rospy.logerr("ODrive has exceeded i2t error threshold, ignoring drive commands. Waiting to cool down.")
-        elif self.i2t_error_latch:
-            if self.left_energy_acc < self.i2t_resume_threshold and self.right_energy_acc < self.i2t_resume_threshold:
-                # have cooled enough now
-                self.status = "ready"
-                self.i2t_error_latch = False
-                rospy.logerr("ODrive has cooled below i2t resume threshold, ignoring drive commands. Waiting to cool down.")
-        
-        
-    #     current_quantizer = 5
-    #
-    #     self.left_current_accumulator += self.current_l
-    #     self.right_current_accumulator += self.current_r
-    #
-    #     self.current_loop_count += 1
-    #     if self.current_loop_count >= current_quantizer:
-    #         self.current_publisher_left.publish(float(self.left_current_accumulator) / current_quantizer)
-    #         self.current_publisher_right.publish(float(self.right_current_accumulator) / current_quantizer)
-    #
-    #         self.current_loop_count = 0
-    #         self.left_current_accumulator = 0.0
-    #         self.right_current_accumulator = 0.0
+
 
     def pub_odometry(self, time_now):
         now = time_now

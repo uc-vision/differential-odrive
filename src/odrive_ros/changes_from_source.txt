@@ -1,0 +1,11 @@
+in odrive_interface.pu
+
+    removed from fibre import ChanelBrokenException (seems to be deprecated in current odrive python library)
+
+    changed vel_setpoint to input_vel
+
+    in calibrate() changed AXIS_STATE_FULL_CALIBRATION to AXIS_STATE_ENCODER_OFFSET_CALIBRATION
+
+    in engage() changed CTRL_MODE_VELOCITY_CONTROL to CTRL_MODE_VELOCITY_CONTROL
+
+    Should add velocity ramp config
