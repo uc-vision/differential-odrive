@@ -1,6 +1,3 @@
-# ARCHIVE NOTICE 2021-02-04
-I have taken on a new position no longer have access to an ODrive for testing. Happy to add a maintainer role if anyone wants to step up to it, otherwise this repo will just stay up here as a reference for other implementations. 
-
 # odrive_ros
 ROS driver for the [ODrive motor driver](https://odriverobotics.com/)
 
@@ -12,18 +9,7 @@ Feedback, issues and pull requests welcome.
 
 ## Usage
 
-You will need the main ODrive Python tools installed.
-
-To install:
-```sh
-git clone https://github.com/madcowswe/ODrive
-cd ODrive/tools
-sudo pip install monotonic # required for py < 3
-
-# sudo python setup.py install # doesn't work due to weird setup process, so do the following:
-python setup.py sdist
-sudo pip install dist/odrive-xxx.tar.gz
-```
+NEW INSTALL INSTRUCTIONS TO COME. CATKIN BUILD SEEMS TO WORK FINE
 
 then `rosrun odrive_ros odrive_node` will get you on your way. 
 
