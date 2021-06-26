@@ -24,6 +24,7 @@ import traceback
 
 from odrive_ros.odrive_interface import ODriveInterfaceAPI, ODriveFailure
 from odrive_ros.odrive_interface import ChannelDamagedException
+from fibre.protocol import ObjectLostError as ChannelBrokenException
 from odrive_ros.odrive_simulator import ODriveInterfaceSimulator
 
 class ROSLogger(object):
@@ -659,10 +660,10 @@ class ODriveNode(object):
         self.tf_msg.transform.rotation.w = q[3]
         
         if self.publish_raw_odom:
-            self.raw_odom_publisher_encoder_left.publish(self.new_pos_l)
-            self.raw_odom_publisher_encoder_right.publish(self.new_pos_r)
-            self.raw_odom_publisher_vel_left.publish(self.vel_l)
-            self.raw_odom_publisher_vel_right.publish(self.vel_r)
+            self.raw_odom_publisher_encoder_left.publish(int(self.new_pos_l))
+            self.raw_odom_publisher_encoder_right.publish(int(self.new_pos_r))
+            self.raw_odom_publisher_vel_left.publish(int(self.vel_l))
+            self.raw_odom_publisher_vel_right.publish(int(self.vel_r))
         
         # ... and publish!
         self.odom_publisher.publish(self.odom_msg)
