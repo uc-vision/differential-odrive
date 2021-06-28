@@ -46,7 +46,7 @@ class ODriveInterfaceAPI(object):
             self.left_axis  = self.driver.axis1
             self.logger.info("Loaded pre-existing ODrive interface. Check index search status.")
             self.encoder_cpr = self.driver.axis0.encoder.config.cpr
-            self.connected = True
+            self.has_connected = False
             self._preroll_started = False
             self._preroll_completed = True
                 
@@ -65,6 +65,7 @@ class ODriveInterfaceAPI(object):
             self.axes = (self.driver.axis0, self.driver.axis1)
         except:
             self.logger.error("No ODrive found. Is device powered?")
+            self.has_connected = False
             return False
                         
         # save some parameters for easy access
@@ -81,7 +82,7 @@ class ODriveInterfaceAPI(object):
         
         self.encoder_cpr = self.driver.axis0.encoder.config.cpr
         
-        self.connected = True
+        self.has_connected = True
         self.logger.info("Connected to ODrive. " + self.get_version_string())
         
         self._preroll_started = False
@@ -90,7 +91,7 @@ class ODriveInterfaceAPI(object):
         return True
         
     def disconnect(self):
-        self.connected = False
+        self.has_connected = False
         self.right_axis = None
         self.left_axis = None
         
@@ -110,7 +111,7 @@ class ODriveInterfaceAPI(object):
         return True
         
     def get_version_string(self):
-        if not self.driver or not self.connected:
+        if self.connected:
             return "Not connected."
         return "ODrive %s, hw v%d.%d-%d, fw v%d.%d.%d%s, sdk v%s" % (
             str(self.driver.serial_number),
@@ -121,7 +122,7 @@ class ODriveInterfaceAPI(object):
         
         
     def reboot(self):
-        if not self.driver:
+        if not self.connected:
             self.logger.error("Not connected.")
             return False
         try:
@@ -236,7 +237,7 @@ class ODriveInterfaceAPI(object):
             return False
         
     def engage(self):
-        if not self.driver:
+        if not self.connected:
             self.logger.error("Not connected.")
             return False
 
@@ -261,7 +262,7 @@ class ODriveInterfaceAPI(object):
         return True
     
     def drive(self, left_motor_val, right_motor_val):
-        if not self.driver:
+        if not self.connected:
             self.logger.error("Not connected.")
             return
         #try:
@@ -273,11 +274,16 @@ class ODriveInterfaceAPI(object):
     def feed_watchdog(self):
         self.left_axis.watchdog_feed()
         self.right_axis.watchdog_feed()
+
+    @property
+    def connected(self):
+      return (self.driver is not None) and not isinstance(self.driver, fibre.libfibre.EmptyInterface) and self.has_connected
         
     def get_errors(self, clear=True):
         # TODO: add error parsing, see: https://github.com/madcowswe/ODrive/blob/master/tools/odrive/utils.py#L34
-        if not self.driver:
-            return None
+        
+        if not self.connected:
+            return "disconnected"
             
         axis_error = self.axes[0].error or self.axes[1].error
         

@@ -15,6 +15,7 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import JointState
 import std_srvs.srv
 
+
 #roslib.load_manifest('diagnostic_updater')
 import diagnostic_updater, diagnostic_msgs.msg
 
@@ -25,6 +26,8 @@ import traceback
 from odrive_ros.odrive_interface import ODriveInterfaceAPI, ODriveFailure
 from odrive_ros.odrive_interface import ChannelDamagedException
 from fibre.protocol import ObjectLostError as ChannelBrokenException
+from fibre.libfibre import ObjectLostError
+
 from odrive_ros.odrive_simulator import ODriveInterfaceSimulator
 
 class ROSLogger(object):
@@ -106,6 +109,8 @@ class ODriveNode(object):
         self.base_frame      = get_param('~base_frame', "base_link")
         self.odom_calc_hz    = get_param('~odom_calc_hz', 10)
         
+        self.fast_timer = None
+
         rospy.on_shutdown(self.terminate)
 
         rospy.Service('connect_driver',    std_srvs.srv.Trigger, self.connect_driver)
@@ -209,7 +214,7 @@ class ODriveNode(object):
         # while a ROS timer will handle the high-rate (~50Hz) comms + odometry calcs
         main_rate = rospy.Rate(1) # hz
         # Start timer to run high-rate comms
-        self.fast_timer = rospy.Timer(rospy.Duration(1/float(self.odom_calc_hz)), self.fast_timer)
+        self.fast_timer = rospy.Timer(rospy.Duration(1/float(self.odom_calc_hz)), self.run_fast_timer)
         
         self.fast_timer_comms_active = False
         
@@ -265,7 +270,7 @@ class ODriveNode(object):
             else:
                 pass # loop around and try again
         
-    def fast_timer(self, timer_event):
+    def run_fast_timer(self, timer_event):
         time_now = rospy.Time.now()
         # in case of failure, assume some values are zero
         self.vel_l = 0
@@ -313,7 +318,7 @@ class ODriveNode(object):
                     # voltage
                     self.bus_voltage = self.driver.bus_voltage()
                     
-            except (ChannelDamagedException):
+            except (ChannelBrokenException, ChannelDamagedException, ObjectLostError):
                 rospy.logerr("ODrive USB connection failure in fast_timer." + traceback.format_exc(1))
                 self.fast_timer_comms_active = False
                 self.status = "disconnected"
@@ -394,7 +399,9 @@ class ODriveNode(object):
     
     
     def terminate(self):
-        self.fast_timer.shutdown()
+        if self.fast_timer:
+          self.fast_timer.shutdown()
+        
         if self.driver:
             self.driver.release()
     
@@ -405,7 +412,7 @@ class ODriveNode(object):
         
         ODriveClass = ODriveInterfaceAPI if not self.sim_mode else ODriveInterfaceSimulator
         
-        self.driver = ODriveInterfaceAPI(logger=ROSLogger())
+        self.driver = ODriveClass(logger=ROSLogger())
         rospy.loginfo("Connecting to ODrive...")
         if not self.driver.connect(right_axis=self.axis_for_right):
             self.driver = None
