@@ -50,8 +50,8 @@ class ODriveInterfaceAPI(object):
             self._preroll_started = False
             self._preroll_completed = True
                 
-    def __del__(self):
-        self.disconnect()
+    # def __del__(self):
+    #     self.disconnect()
         
     def update_time(self, curr_time):
         # provided so simulator can update position
@@ -61,13 +61,13 @@ class ODriveInterfaceAPI(object):
         if self.driver:
             self.logger.info("Already connected. Disconnecting and reconnecting.")
         try:
-            self.driver = odrive.find_any(timeout=timeout, logger=self.logger)
+            self.driver = odrive.find_any(timeout=timeout)
             self.axes = (self.driver.axis0, self.driver.axis1)
         except:
             self.logger.error("No ODrive found. Is device powered?")
             self.has_connected = False
             return False
-                        
+              
         # save some parameters for easy access
         self.right_axis = self.driver.axis0 if right_axis == 0 else self.driver.axis1
         self.left_axis  = self.driver.axis1 if right_axis == 0 else self.driver.axis0
@@ -120,7 +120,7 @@ class ODriveInterfaceAPI(object):
             "-dev" if self.driver.fw_version_unreleased else "",
             odrive.version.get_version_str())
         
-        
+      
     def reboot(self):
         if not self.connected:
             self.logger.error("Not connected.")
@@ -257,7 +257,6 @@ class ODriveInterfaceAPI(object):
         #self.logger.debug("Releasing.")
         for axis in self.axes: 
             axis.requested_state = AXIS_STATE_IDLE
-
         #self.engaged = False
         return True
     
