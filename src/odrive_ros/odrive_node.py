@@ -90,6 +90,8 @@ class ODriveNode(object):
         self.publish_temperatures = get_param('publish_temperatures', True)
         
         self.axis_for_right = float(get_param('~axis_for_right', 0)) # if right calibrates first, this should be 0, else 1
+        self.flip_left_direction = float(get_param('~flip_left_direction', False))
+        self.flip_right_direction = float(get_param('~flip_right_direction', False))
         self.wheel_track = float(get_param('~wheel_track', 0.285)) # m, distance between wheel centres
         self.tyre_circumference = float(get_param('~tyre_circumference', 0.341)) # used to translate velocity commands in m/s into motor rpm
         
@@ -304,11 +306,10 @@ class ODriveNode(object):
                     self.m_s_to_value = self.encoder_cpr/self.tyre_circumference # calculated
                 
                     self.driver.update_time(time_now.to_sec())
-                    self.vel_l = -self.driver.left_vel_estimate()   # units: encoder counts/s
-                    self.vel_r = -self.driver.right_vel_estimate() # neg is forward for right
-                    self.new_pos_l = -self.driver.left_pos()        # units: encoder counts
-                    self.new_pos_r = -self.driver.right_pos()      # sign!
-                    
+                    self.vel_l = self.driver.left_vel_estimate()   # units: encoder counts/s
+                    self.vel_r = self.driver.right_vel_estimate()
+                    self.new_pos_l = self.driver.left_pos()        # units: encoder counts
+                    self.new_pos_r = self.driver.right_pos()
                     # for temperatures
                     self.temp_v_l = self.driver.left_temperature()
                     self.temp_v_r = self.driver.right_temperature()
@@ -384,7 +385,7 @@ class ODriveNode(object):
                         
                     left_linear_val, right_linear_val = motor_command[1]
                     # TODO: Short term these have been swapped. Fix later!
-                    self.driver.drive(-right_linear_val, -left_linear_val)
+                    self.driver.drive(left_linear_val, right_linear_val)
                     self.last_speed = max(abs(left_linear_val), abs(right_linear_val))
                     self.last_cmd_vel_time = time_now
                 except (ChannelBrokenException, ChannelDamagedException):
