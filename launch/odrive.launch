@@ -4,6 +4,8 @@
     <arg name="calibrate_on_startup" default="true"/>
     <arg name="engage_on_startup"    default="true"/>
 
+    <arg name="odom_frame"        default="odom"/>
+    <arg name="base_frame"        default="wheel_odom_link"/>
     <arg name="publish_odom"        default="true"/>
     <arg name="publish_odom_tf"     default="false"/>
 
@@ -16,10 +18,13 @@
             output="$(arg output)" respawn="$(arg respawn)">
         <remap from="/cmd_vel" to="/cmd_vel_mux/cmd_vel"/>
         <param name="wheel_track" value="0.77"/>
-        <param name="tyre_circumference" value="0.078"/>
+        <param name="tyre_circumference" value="0.03852"/>
         <param name ="axis_for_right" value="1"/>
         <param name ="flip_left_direction" value="true"/>
         <param name ="flip_right_direction" value="true"/>
+
+        <param name="odom_frame"   value="$(arg odom_frame)"/>
+        <param name="base_frame" value="$(arg base_frame)"/>
         
         <param name="connect_on_startup"   value="$(arg connect_on_startup)"/>
         <param name="calibrate_on_startup" value="$(arg calibrate_on_startup)"/>
