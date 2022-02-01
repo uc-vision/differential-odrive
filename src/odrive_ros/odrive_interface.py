@@ -32,72 +32,57 @@ class ODriveInterfaceAPI(object):
     encoder_cpr = 10000
     right_axis = None
     left_axis = None
-    connected = False
-    _preroll_started = False
-    _preroll_completed = False
-    #engaged = False
     
-    def __init__(self, logger=None, active_odrive=None):
+    def __init__(self, logger=None):
         self.logger = logger if logger else default_logger
         self.flip_left_direction = False
         self.flip_right_direction = False
-        
-        if active_odrive: # pass in the odrv0 object from odrivetool shell to use it directly.
-            raise Exception("This hasn't been tested. Axis are just assigned.")
-            self.driver = active_odrive
-            self.axes = (self.driver.axis0, self.driver.axis1)
-            self.right_axis = self.driver.axis0 
-            self.left_axis  = self.driver.axis1
-            self.logger.info("Loaded pre-existing ODrive interface. Check index search status.")
-            self.encoder_cpr = self.driver.axis0.encoder.config.cpr
-            self.has_connected = False
-            self._preroll_started = False
-            self._preroll_completed = True
-                
-    # def __del__(self):
-    #     self.disconnect()
-        
+        self.left_odrive = None
+        self.right_odrive = None
+
+        self.left_axes = []
+        self.right_axes = []
+              
     def update_time(self, curr_time):
         # provided so simulator can update position
         pass
                     
-    def connect(self, port=None, right_axis=0, flip_left_direction=False, flip_right_direction=False, timeout=30):
+    def connect(self, port=None, left_sn=None, right_sn=None, flip_left_direction=False, flip_right_direction=False, timeout=30):
         self.flip_left_direction = flip_left_direction
         self.flip_right_direction = flip_right_direction
-        if self.driver:
-            self.logger.info("Already connected. Disconnecting and reconnecting.")
+        if self.left_odrive:
+            self.logger.info("Left already connected. Disconnecting and reconnecting.")
+        if self.right_odrive:
+            self.logger.info("Right already connected. Disconnecting and reconnecting.")
+        
         try:
-            self.driver = odrive.find_any(timeout=timeout)
-            self.axes = (self.driver.axis0, self.driver.axis1)
+            self.left_odrive = odrive.find_any(serial_number=left_sn)
+            self.right_odrive = odrive.find_any(serial_number=right_sn)
         except:
             self.logger.error("No ODrive found. Is device powered?")
-            self.has_connected = False
             return False
-              
-        # save some parameters for easy access
-        self.right_axis = self.driver.axis0 if right_axis == 0 else self.driver.axis1
-        self.left_axis  = self.driver.axis1 if right_axis == 0 else self.driver.axis0
         
+        self.left_axes = [self.left_odrive.axis0, self.left_odrive.axis1]
+        self.right_axes = [self.right_odrive.axis0, self.right_odrive.axis1]
+
         # check for no errors
-        for axis in [self.right_axis, self.left_axis]:
+        for axis in self.left_axes + self.right_axes:
             if axis.error != 0:
                 error_str = "Had error on startup, rebooting. Axis error 0x%x, motor error 0x%x, encoder error 0x%x. Rebooting." % (axis.error, axis.motor.error, axis.encoder.error)
                 self.logger.error(error_str)
                 self.reboot()
                 return False
         
-        self.encoder_cpr = self.driver.axis0.encoder.config.cpr
+        # Note: assumes all motors have the same CPR
+        self.encoder_cpr = self.left_odrive.axis0.encoder.config.cpr
         
-        self.has_connected = True
-        self.logger.info("Connected to ODrive. " + self.get_version_string())
-        
-        self._preroll_started = False
-        self._preroll_completed = False
-        
+        self.logger.info("Connected to left odrive" + self.get_version_string(self.left_odrive))
+        self.logger.info("Connected to right odrive. " + self.get_version_string(self.right_odrive))
+               
         return True
         
     def disconnect(self):
-        self.has_connected = False
+        raise NotImplementedException()
         self.right_axis = None
         self.left_axis = None
         
@@ -116,18 +101,17 @@ class ODriveInterfaceAPI(object):
             self.driver = None
         return True
         
-    def get_version_string(self):
-        if self.connected:
-            return "Not connected."
+    def get_version_string(self, odrv):
         return "ODrive %s, hw v%d.%d-%d, fw v%d.%d.%d%s, sdk v%s" % (
-            str(self.driver.serial_number),
-            self.driver.hw_version_major, self.driver.hw_version_minor, self.driver.hw_version_variant,
-            self.driver.fw_version_major, self.driver.fw_version_minor, self.driver.fw_version_revision,
-            "-dev" if self.driver.fw_version_unreleased else "",
+            str(odrv.serial_number),
+            odrv.hw_version_major, odrv.hw_version_minor, odrv.hw_version_variant,
+            odrv.fw_version_major, odrv.fw_version_minor, odrv.fw_version_revision,
+            "-dev" if odrv.fw_version_unreleased else "",
             odrive.version.get_version_str())
         
       
     def reboot(self):
+        raise NotImplementedException()
         if not self.connected:
             self.logger.error("Not connected.")
             return False
@@ -140,149 +124,126 @@ class ODriveInterfaceAPI(object):
         finally:
             self.driver = None
         return True
-        
-    def calibrate(self):
-        raise NotImplementedException("this isnt the calibration you are looking for.")
-        if not self.driver:
+
+    @property
+    def prerolled(self):
+        # true if all motors are prerolled
+        if not self.connected:
             self.logger.error("Not connected.")
             return False
-        
-        self.logger.info("Vbus %.2fV" % self.driver.vbus_voltage)
-        
-        for i, axis in enumerate(self.axes):
-            self.logger.info("Calibrating axis %d..." % i)
-            axis.requested_state = AXIS_STATE_ENCODER_OFFSET_CALIBRATION
-            time.sleep(1)
-            while axis.current_state != AXIS_STATE_IDLE:
-                time.sleep(0.1)
-            if axis.error != 0:
-                self.logger.error("Failed calibration with axis error 0x%x, motor error 0x%x" % (axis.error, axis.motor.error))
+
+        for axis in self.left_axes + self.right_axes:
+            if not axis.encoder.is_ready:
                 return False
-                
         return True
-        
-    def preroll(self, wait=True):
-        if not self.driver:
+
+    @property
+    def prerolling(self):
+        # true if any motors are prerolling
+        if not self.connected:
             self.logger.error("Not connected.")
             return False
-            
-        if self._preroll_started: # must be prerolling or already prerolled
+
+        for axis in self.left_axes + self.right_axes:
+            if axis.current_state == AXIS_STATE_ENCODER_OFFSET_CALIBRATION:
+                return True
+        return False
+
+    def preroll(self, wait=True):
+        if not self.connected:
+            self.logger.error("Not connected.")
             return False
-        self._preroll_started = True
-        self._preroll_completed = False
-            
-        #self.logger.info("Vbus %.2fV" % self.driver.vbus_voltage)
         
-        for i, axis in enumerate(self.axes):
-            self.logger.info("Index search preroll axis %d..." % i)
+        if self.prerolled:
+            return True
+            
+        if self.prerolling:
+            self.logger.warn("Already prerolling")
+            return False
+            
+        for axis in self.left_axes + self.right_axes:
             axis.requested_state = AXIS_STATE_ENCODER_OFFSET_CALIBRATION
         
         if wait:
-            for i, axis in enumerate(self.axes):
-                while axis.current_state != AXIS_STATE_IDLE:
-                    time.sleep(0.1)
-            self._preroll_started = False
-            for i, axis in enumerate(self.axes):
+            while self.prerolling:
+                time.sleep(0.1)
+
+            for axis in self.left_axes + self.right_axes:
                 if axis.error != 0:
                     self.logger.error("Failed preroll with left_axis error 0x%x, motor error 0x%x" % (axis.error, axis.motor.error))
                     return False
-            self._preroll_completed = True
-            self.logger.info("Index search preroll complete.")
-            return True
-        else:
-            return False
-        
-    # def prerolling(self):
-    #     return self.axes[0].current_state == AXIS_STATE_ENCODER_INDEX_SEARCH or self.axes[1].current_state == AXIS_STATE_ENCODER_INDEX_SEARCH
-    #
-    # def prerolled(self): #
-    #     return self._prerolled and not self.prerolling()
-        
-    def ensure_prerolled(self):
-        # preroll success
-        if self._preroll_completed:
-            return True
-        # started, not completed
-        elif self._preroll_started:
-            #self.logger.info("Checking for preroll complete.")
-            if self.axes[0].current_state != AXIS_STATE_ENCODER_INDEX_SEARCH and self.axes[1].current_state != AXIS_STATE_ENCODER_INDEX_SEARCH:
-                # completed, check for errors before marking complete
-                for i, axis in enumerate(self.axes):
-                    if axis.error != 0:
-                        self._preroll_started = False
-                        error_str = "Failed index search preroll with axis error 0x%x, motor error 0x%x, encoder error 0x%x. Rebooting." % (axis.error, axis.motor.error, axis.encoder.error)
-                        #self.reboot()
-                        self.logger.error(error_str)
-                        raise Exception(error_str)
-                # no errors, success
-                self._preroll_started = False
-                self._preroll_completed = True
-                self.logger.info("Index search preroll complete. Ready to drive.")
-                return True
-            else:
-                # still prerolling
-                return False
-        else: # start preroll
-            #self.logger.info("Preroll started.")
-            self.preroll(wait=False)
-            return False
             
-    def has_prerolled(self):
-        return self._preroll_completed
-    
+            if self.prerolled:
+                self.logger.info("Index search preroll complete.")
+                return True
+        
+        return False
+
+    @property   
     def engaged(self):
-        if self.driver and hasattr(self, 'axes'):
-            return self.axes[0].current_state == AXIS_STATE_CLOSED_LOOP_CONTROL and self.axes[1].current_state == AXIS_STATE_CLOSED_LOOP_CONTROL
-        else:
+        # returns true if all axes are iengaged
+        if not self.connected:
+            self.logger.error("Not connected.")
             return False
+
+        for axis in self.left_axes + self.right_axes:
+            if axis.current_state != AXIS_STATE_CLOSED_LOOP_CONTROL:
+                return False
+        return True 
     
     def idle(self):
-        if self.driver and hasattr(self, 'axes'):
-            return self.axes[0].current_state == AXIS_STATE_IDLE and self.axes[1].current_state == AXIS_STATE_IDLE
-        else:
+        # returns true if all axes are idle
+        if not self.connected:
+            self.logger.error("Not connected.")
             return False
+
+        for axis in self.left_axes + self.right_axes:
+            if axis.current_state != AXIS_STATE_IDLE:
+                return False
+        return True 
         
     def engage(self):
         if not self.connected:
             self.logger.error("Not connected.")
             return False
 
-        #self.logger.debug("Setting drive mode.")
-        for axis in self.axes:
+        for axis in self.left_axes + self.right_axes:
             axis.controller.input_vel = 0
             axis.requested_state = AXIS_STATE_CLOSED_LOOP_CONTROL
             axis.controller.config.control_mode = CONTROL_MODE_VELOCITY_CONTROL
         
-        #self.engaged = True
         return True
         
     def release(self):
-        if not self.driver:
+        if not self.connected:
             self.logger.error("Not connected.")
             return False
-        #self.logger.debug("Releasing.")
-        for axis in self.axes: 
+        for axis in self.left_axes + self.right_axes:
             axis.requested_state = AXIS_STATE_IDLE
-        #self.engaged = False
         return True
     
     def drive(self, left_motor_val, right_motor_val):
         if not self.connected:
             self.logger.error("Not connected.")
             return
-        #try:
-        self.left_axis.controller.input_vel = self.flip_l(left_motor_val)
-        self.right_axis.controller.input_vel = self.flip_r(right_motor_val)
-        #except (fibre.protocol.ChannelBrokenException, AttributeError) as e:
-        #    raise ODriveFailure(str(e))
+        
+        for axis in self.left_axes:
+            axis.controller.input_vel = self.flip_l(left_motor_val)
+        for axis in self.right_axes:
+            axis.controller.input_vel = self.flip_r(right_motor_val)
         
     def feed_watchdog(self):
-        self.left_axis.watchdog_feed()
-        self.right_axis.watchdog_feed()
+        for axis in self.left_axes + self.right_axes:
+            axis.watchdog_feed()
 
     @property
     def connected(self):
-      return (self.driver is not None) and not isinstance(self.driver, fibre.libfibre.EmptyInterface) and self.has_connected
+        for odrv in [self.left_odrive, self.right_odrive]:
+            if odrv is None:
+                return False
+            if isinstance(odrv, fibre.libfibre.EmptyInterface):
+                return False
+        return True
         
     def get_errors(self, clear=True):
         # TODO: add error parsing, see: https://github.com/madcowswe/ODrive/blob/master/tools/odrive/utils.py#L34
@@ -314,20 +275,25 @@ class ODriveInterfaceAPI(object):
     def flip_r(self, value):
         return -value if self.flip_right_direction else value
 
+    @property
     def left_vel_estimate(self):
-        return self.flip_l(self.left_axis.encoder.vel_estimate_counts)   if self.left_axis  else 0   # units: encoder counts/s
+        return self.flip_l(self.left_axes[0].encoder.vel_estimate) 
     
+    @property
     def right_vel_estimate(self):
-        return self.flip_r(self.right_axis.encoder.vel_estimate_counts)  if self.right_axis else 0 
+        return self.flip_r(self.right_axes[0].encoder.vel_estimate)
     
+    @property
     def left_pos(self):
-        return self.flip_l(self.left_axis.encoder.pos_cpr_counts)        if self.left_axis  else 0   # units: encoder counts
+        return self.flip_l(self.left_axes[0].encoder.pos_estimate)
     
+    @property
     def right_pos(self):
-        return self.flip_r(self.right_axis.encoder.pos_cpr_counts)       if self.right_axis else 0 
+        return self.flip_r(self.right_axes[0].encoder.pos_estimate)
     
     # TODO check these match the right motors, but it doesn't matter for now
-    def left_temperature(self):   return self.left_axis.motor.fet_thermistor.temperature  if self.left_axis  else 0.
+    def left_temperature(self):   
+        return self.left_axis.motor.fet_thermistor.temperature  if self.left_axis  else 0.
     def right_temperature(self):  return self.right_axis.motor.fet_thermistor.temperature if self.right_axis else 0.
     
     def left_current(self):       return self.left_axis.motor.I_bus  if self.left_axis and self.left_axis.current_state > 1 else 0.
