@@ -28,42 +28,53 @@ class ODriveFailure(Exception):
     pass
 
 class ODriveInterfaceAPI(object):
-    driver = None
-    encoder_cpr = 10000
-    right_axis = None
-    left_axis = None
     
     def __init__(self, logger=None):
         self.logger = logger if logger else default_logger
         self.flip_left_direction = False
         self.flip_right_direction = False
-        self.left_odrive = None
-        self.right_odrive = None
+
+        self.odrives = dict()
 
         self.left_axes = []
         self.right_axes = []
-              
-    def update_time(self, curr_time):
-        # provided so simulator can update position
-        pass
-                    
-    def connect(self, port=None, left_sn=None, right_sn=None, flip_left_direction=False, flip_right_direction=False, timeout=30):
-        self.flip_left_direction = flip_left_direction
-        self.flip_right_direction = flip_right_direction
-        if self.left_odrive:
-            self.logger.info("Left already connected. Disconnecting and reconnecting.")
-        if self.right_odrive:
-            self.logger.info("Right already connected. Disconnecting and reconnecting.")
-        
-        try:
-            self.left_odrive = odrive.find_any(serial_number=left_sn)
-            self.right_odrive = odrive.find_any(serial_number=right_sn)
-        except:
-            self.logger.error("No ODrive found. Is device powered?")
+     
+    def connect(self, port=None, odrive_sn=None, left_sn=None, right_sn=None, right_axes=0, flip_left_direction=False, flip_right_direction=False, timeout=30):
+        if odrive_sn is not None:
+            self.logger.info("Single odrive mode")
+            try:
+                self.odrives["odrive"] = odrive.find_any(serial_number=odrive_sn)
+            except:
+                self.logger.error("No ODrive found. Is device powered?")
+                return False
+
+            if right_axes == 0:
+                self.left_axes = [self.odrives["odrive"].axis1]
+                self.right_axes = [self.odrives["odrive"].axis0]
+            else:
+                self.left_axes = [self.odrives["odrive"].axis0]
+                self.right_axes = [self.odrives["odrive"].axis1]
+
+
+        elif left_sn is not None and right_sn is not None:
+            self.logger.info("Dual odrive mode")
+
+            try:
+                self.odrives["left"] = odrive.find_any(serial_number=left_sn)
+                self.odrives["right"] = odrive.find_any(serial_number=right_sn)
+            except:
+                self.logger.error("No ODrive found. Is device powered?")
+                return False
+
+            self.left_axes = [self.odrives["left"].axis0, self.odrives["left"].axis1]
+            self.right_axes = [self.odrives["right"].axis0, self.odrives["right"].axis1]
+
+        else:
+            self.logger.error("Specify odrive_sn or both left_sn and right_sn")
             return False
-        
-        self.left_axes = [self.left_odrive.axis0, self.left_odrive.axis1]
-        self.right_axes = [self.right_odrive.axis0, self.right_odrive.axis1]
+
+        self.flip_left_direction = flip_left_direction
+        self.flip_right_direction = flip_right_direction        
 
         # check for no errors
         for axis in self.left_axes + self.right_axes:
@@ -73,11 +84,8 @@ class ODriveInterfaceAPI(object):
                 self.reboot()
                 return False
         
-        # Note: assumes all motors have the same CPR
-        self.encoder_cpr = self.left_odrive.axis0.encoder.config.cpr
-        
-        self.logger.info("Connected to left odrive" + self.get_version_string(self.left_odrive))
-        self.logger.info("Connected to right odrive. " + self.get_version_string(self.right_odrive))
+        for odrv_name in self.odrives:
+            self.logger.info("Connected to %s %s" %(odrv_name,  self.get_version_string(self.odrives[odrv_name])))
                
         return True
         
@@ -109,7 +117,6 @@ class ODriveInterfaceAPI(object):
             "-dev" if odrv.fw_version_unreleased else "",
             odrive.version.get_version_str())
         
-      
     def reboot(self):
         raise NotImplementedException()
         if not self.connected:
@@ -238,7 +245,7 @@ class ODriveInterfaceAPI(object):
 
     @property
     def connected(self):
-        for odrv in [self.left_odrive, self.right_odrive]:
+        for odrv in self.odrives.values():
             if odrv is None:
                 return False
             if isinstance(odrv, fibre.libfibre.EmptyInterface):
@@ -251,16 +258,17 @@ class ODriveInterfaceAPI(object):
         if not self.connected:
             return "disconnected"
             
-        axis_error = self.axes[0].error or self.axes[1].error
+        axis_error = 0
+        for axis in self.left_axes + self.right_axes:
+            axis_error |= axis.error
         
         if axis_error:
-            error_string = "Errors(hex): L: a%x m%x e%x c%x, R: a%x m%x e%x c%x" % (
-                self.left_axis.error,  self.left_axis.motor.error,  self.left_axis.encoder.error,  self.left_axis.controller.error,
-                self.right_axis.error, self.right_axis.motor.error, self.right_axis.encoder.error, self.right_axis.controller.error,
-            )
+            error_string = "Errors(hex): "
+            for axis in self.left_axes + self.right_axes:
+                error_string += "a%x m%x e%x c%x " %(axis.error,  axis.motor.error,  axis.encoder.error,  axis.controller.error)
         
         if clear:
-            for axis in self.axes:
+            for axis in self.left_axes + self.right_axes:
                 axis.error = 0
                 axis.motor.error = 0
                 axis.encoder.error = 0
@@ -291,14 +299,22 @@ class ODriveInterfaceAPI(object):
     def right_pos(self):
         return self.flip_r(self.right_axes[0].encoder.pos_estimate)
     
-    # TODO check these match the right motors, but it doesn't matter for now
+    @property
     def left_temperature(self):   
-        return self.left_axis.motor.fet_thermistor.temperature  if self.left_axis  else 0.
-    def right_temperature(self):  return self.right_axis.motor.fet_thermistor.temperature if self.right_axis else 0.
+        return max([axis.motor.fet_thermistor.temperature for axis in self.left_axes])
+
+    @property
+    def right_temperature(self):
+        return max([axis.motor.fet_thermistor.temperature for axis in self.left_axes])
     
-    def left_current(self):       return self.left_axis.motor.I_bus  if self.left_axis and self.left_axis.current_state > 1 else 0.
-    def right_current(self):      return self.right_axis.motor.I_bus if self.right_axis and self.right_axis.current_state > 1 else 0.
-    
+    @property
+    def left_current(self):
+        return sum([axis.motor.I_bus for axis in self.left_axes])
+
+    @property
+    def right_current(self):
+        return sum([axis.motor.I_bus for axis in self.right_axes])
+
     # from axis.hpp: https://github.com/madcowswe/ODrive/blob/767a2762f9b294b687d761029ef39e742bdf4539/Firmware/MotorControl/axis.hpp#L26
     MOTOR_STATES = [
         "UNDEFINED",                  #<! will fall through to idle
@@ -317,5 +333,10 @@ class ODriveInterfaceAPI(object):
     def left_state(self):       return self.MOTOR_STATES[self.left_axis.current_state] if self.left_axis else "NOT_CONNECTED"
     def right_state(self):      return self.MOTOR_STATES[self.right_axis.current_state] if self.right_axis else "NOT_CONNECTED"
     
-    def bus_voltage(self):      return self.driver.vbus_voltage if self.left_axis else 0.
+    @property
+    def bus_voltage(self):
+        v_max = 0
+        for odrv in self.odrives.values():
+            v_max = max(odrv.vbus_voltage, v_max)
+        return v_max
     
