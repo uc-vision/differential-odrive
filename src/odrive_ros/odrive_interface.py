@@ -39,7 +39,7 @@ class ODriveInterfaceAPI(object):
         self.left_axes = []
         self.right_axes = []
      
-    def connect(self, port=None, odrive_sn=None, left_sn=None, right_sn=None, right_axes=0, flip_left_direction=False, flip_right_direction=False, timeout=30):
+    def connect(self, port=None, odrive_sn=None, left_sn=None, right_sn=None, right_axis=0, flip_left_direction=False, flip_right_direction=False, timeout=30):
         if odrive_sn is not None:
             self.logger.info("Single odrive mode")
             try:
@@ -48,7 +48,7 @@ class ODriveInterfaceAPI(object):
                 self.logger.error("No ODrive found. Is device powered?")
                 return False
 
-            if right_axes == 0:
+            if right_axis == 0:
                 self.left_axes = [self.odrives["odrive"].axis1]
                 self.right_axes = [self.odrives["odrive"].axis0]
             else:
@@ -188,7 +188,7 @@ class ODriveInterfaceAPI(object):
 
     @property   
     def engaged(self):
-        # returns true if all axes are iengaged
+        # returns true if all axes are engaged
         if not self.connected:
             self.logger.error("Not connected.")
             return False
