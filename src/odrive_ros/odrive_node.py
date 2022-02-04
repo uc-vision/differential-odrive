@@ -159,11 +159,7 @@ class ODriveNode(object):
 
         
     def main_loop(self):
-        # Main control, handle startup and error handling
-        # while a ROS timer will handle the high-rate (~50Hz) comms + odometry calcs
-        main_rate = rospy.Rate(2) # hz
-        # Start timer to run high-rate comms
-        self.fast_timer = rospy.Timer(rospy.Duration(1/float(self.odom_calc_hz)), self.run_fast_timer)
+        main_rate = rospy.Rate(float(self.odom_calc_hz))
 
         if self.calibrate_on_startup:
             self.driver.preroll()
@@ -181,6 +177,31 @@ class ODriveNode(object):
 
             time_now = rospy.Time.now()
 
+            if self.publish_odom:
+                self.pub_odometry(time_now)
+            if self.publish_temperatures:
+                self.pub_temperatures()
+            if self.publish_current:
+                self.pub_current()
+
+            if self.command is not None:
+                if not self.driver.prerolled:
+                    rospy.logwarn_throttle(5.0, "ODrive has not been prerolled, ignoring drive command.")
+                    return
+            
+                elif not self.driver.engaged:
+                    rospy.logwarn_throttle(5.0, "ODrive is not engaged, engaging now.")
+                    self.driver.engage()
+
+                else:      
+                    left_linear_val, right_linear_val = self.command
+    
+                    self.driver.drive(left_linear_val, right_linear_val)
+                    self.last_speed = max(abs(left_linear_val), abs(right_linear_val))
+                    self.last_cmd_vel_time = time_now
+                    self.command = None
+        
+
             if (time_now - self.last_cmd_vel_time).to_sec() > 0.5 and self.last_speed > 0:
                 self.driver.drive(0,0)
                 self.last_speed = 0
@@ -188,41 +209,9 @@ class ODriveNode(object):
 
             if (time_now - self.last_cmd_vel_time).to_sec() > 10.0 and self.driver.engaged:
                 rospy.logwarn("No cmd_vel received for %ds - disengaging motors" %10.0 )
-                self.driver.release() # and release      
-            
-        
-    def run_fast_timer(self, timer_event):
-        time_now = rospy.Time.now()
-
-        if self.publish_odom:
-            self.pub_odometry(time_now)
-        if self.publish_temperatures:
-            self.pub_temperatures()
-        if self.publish_current:
-            self.pub_current()
-        
-        
-        # handle sending drive commands.
-        # from here, any errors return to get out
-        if self.command is not None:
-            if not self.driver.prerolled:
-                rospy.logwarn_throttle(5.0, "ODrive has not been prerolled, ignoring drive command.")
-                return
-          
-            elif not self.driver.engaged:
-                rospy.logwarn_throttle(5.0, "ODrive is not engaged, engaging now.")
-                self.driver.engage()
-
-            else:      
-                left_linear_val, right_linear_val = self.command
-  
-                self.driver.drive(left_linear_val, right_linear_val)
-                self.last_speed = max(abs(left_linear_val), abs(right_linear_val))
-                self.last_cmd_vel_time = time_now
-                self.command = None
-
+                self.driver.release() # and release         
     
-    
+
     def terminate(self):
         if self.fast_timer:
           self.fast_timer.shutdown()
