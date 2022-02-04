@@ -1,9 +1,6 @@
 #!/usr/bin/env python
-from __future__ import print_function
 
-#import roslib; roslib.load_manifest('BINCADDY')
 import rospy
-#import roslib
 import tf.transformations
 import tf_conversions
 import tf2_ros
@@ -168,6 +165,8 @@ class ODriveNode(object):
             self.driver.engage()
         else:
             self.driver.release()
+
+        self.driver.enable_watchdog(1.0)
                
         while not rospy.is_shutdown():
             try:
@@ -176,6 +175,8 @@ class ODriveNode(object):
                 break;
 
             time_now = rospy.Time.now()
+
+            self.driver.feed_watchdog()
 
             if self.publish_odom:
                 self.pub_odometry(time_now)
@@ -209,7 +210,9 @@ class ODriveNode(object):
 
             if (time_now - self.last_cmd_vel_time).to_sec() > 10.0 and self.driver.engaged:
                 rospy.logwarn("No cmd_vel received for %ds - disengaging motors" %10.0 )
-                self.driver.release() # and release         
+                self.driver.release() # and release   
+
+        self.driver.disable_watchdog()
     
 
     def terminate(self):
@@ -266,23 +269,18 @@ class ODriveNode(object):
         self.x = 0.0
         self.y = 0.0
         self.theta = 0.0
-        
         return(True, "Odometry reset.")
-    
-    # Helpers and callbacks
     
     def convert(self, forward, ccw):
         angular_to_linear = ccw * (self.wheel_track/2.0) 
         left_linear_val  = (forward - angular_to_linear) / self.tyre_circumference
         right_linear_val = (forward + angular_to_linear) / self.tyre_circumference
-    
         return left_linear_val, right_linear_val
 
     def cmd_vel_callback(self, msg):
         left_linear_val, right_linear_val = self.convert(msg.linear.x, msg.angular.z)
         self.command = (left_linear_val, right_linear_val)
         self.last_cmd_vel_time = rospy.Time.now()
-        
         
     def pub_temperatures(self):
         self.temperature_publisher_left.publish(self.driver.left_temperature)
@@ -305,8 +303,6 @@ class ODriveNode(object):
         w = self.tyre_circumference * (vel_r-vel_l) / (self.wheel_track) # angle: vel_r*tyre_radius - vel_l*tyre_radius
         self.odom_msg.twist.twist.linear.x = s
         self.odom_msg.twist.twist.angular.z = w
-
-        
     
         self.new_pos_l = self.driver.left_pos
         self.new_pos_r = self.driver.right_pos

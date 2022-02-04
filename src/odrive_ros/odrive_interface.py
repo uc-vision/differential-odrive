@@ -39,7 +39,8 @@ class ODriveInterfaceAPI(object):
         self.left_axes = []
         self.right_axes = []
      
-    def connect(self, port=None, odrive_sn=None, left_sn=None, right_sn=None, right_axis=0, flip_left_direction=False, flip_right_direction=False, timeout=30):
+    def connect(self, odrive_sn=None, left_sn=None, right_sn=None, right_axis=0, flip_left_direction=False, flip_right_direction=False, timeout=30, attempts=4):
+        # Setup a single odrive with each axis controlling one side
         if odrive_sn is not None:
             self.logger.info("Single odrive mode")
             try:
@@ -55,7 +56,7 @@ class ODriveInterfaceAPI(object):
                 self.left_axes = [self.odrives["odrive"].axis0]
                 self.right_axes = [self.odrives["odrive"].axis1]
 
-
+        # Setup two odrives with one odrive per side
         elif left_sn is not None and right_sn is not None:
             self.logger.info("Dual odrive mode")
 
@@ -73,41 +74,46 @@ class ODriveInterfaceAPI(object):
             self.logger.error("Specify odrive_sn or both left_sn and right_sn")
             return False
 
+        # Log connected odrives 
+        for odrv_name in self.odrives:
+            self.logger.info("Connected to %s %s" %(odrv_name,  self.get_version_string(self.odrives[odrv_name])))
+
         self.flip_left_direction = flip_left_direction
         self.flip_right_direction = flip_right_direction        
 
-        # check for no errors
+        self.disable_watchdog()
+        self.clear_watchdog()
+
+        # Any watchdog timeouts will have been cleared. For all other errors we will reboot the odrive.
+        errors = False
         for axis in self.left_axes + self.right_axes:
             if axis.error != 0:
-                error_str = "Had error on startup, rebooting. Axis error 0x%x, motor error 0x%x, encoder error 0x%x. Rebooting." % (axis.error, axis.motor.error, axis.encoder.error)
+                error_str = "Had error on startup, rebooting. Axis error 0x%x, motor error 0x%x, encoder error 0x%x." % (axis.error, axis.motor.error, axis.encoder.error)
                 self.logger.error(error_str)
-                self.reboot()
+                errors = True
+        if errors:
+            for odrv in self.odrives.values():
+                try:
+                    self.logger.error("Rebooting odrive")
+                    odrv.reboot()
+                except fibre.libfibre.ObjectLostError:
+                    self.logger.error("Odrive has disconnected")
+
+            if attempts >= 0:
+                self.logger.error("Reconnecting: Attempts remaining %d" %attempts)
+                return self.connect(
+                    odrive_sn=odrive_sn,
+                    left_sn=left_sn,
+                    right_sn=right_sn,
+                    right_axis=right_axis,
+                    flip_left_direction=flip_left_direction,
+                    flip_right_direction=flip_right_direction,
+                    timeout=timeout,
+                    attempts=attempts-1)
+            else:
                 return False
-        
-        for odrv_name in self.odrives:
-            self.logger.info("Connected to %s %s" %(odrv_name,  self.get_version_string(self.odrives[odrv_name])))
-               
-        return True
-        
-    def disconnect(self):
-        raise NotImplementedException()
-        self.right_axis = None
-        self.left_axis = None
-        
-        #self.engaged = False
-        
-        if not self.driver:
-            self.logger.error("Not connected.")
-            return False
-        
-        try:
-            self.release()
-        except:
-            self.logger.error("Error in timer: " + traceback.format_exc())
-            return False
-        finally:
-            self.driver = None
-        return True
+        else:
+            return True
         
     def get_version_string(self, odrv):
         return "ODrive %s, hw v%d.%d-%d, fw v%d.%d.%d%s, sdk v%s" % (
@@ -116,21 +122,6 @@ class ODriveInterfaceAPI(object):
             odrv.fw_version_major, odrv.fw_version_minor, odrv.fw_version_revision,
             "-dev" if odrv.fw_version_unreleased else "",
             odrive.version.get_version_str())
-        
-    def reboot(self):
-        raise NotImplementedException()
-        if not self.connected:
-            self.logger.error("Not connected.")
-            return False
-        try:
-            self.driver.reboot()
-        except KeyError:
-            self.logger.error("Rebooted ODrive.")
-        except:
-            self.logger.error("Failed to reboot: " + traceback.format_exc())
-        finally:
-            self.driver = None
-        return True
 
     @property
     def prerolled(self):
@@ -238,10 +229,25 @@ class ODriveInterfaceAPI(object):
             axis.controller.input_vel = self.flip_l(left_motor_val)
         for axis in self.right_axes:
             axis.controller.input_vel = self.flip_r(right_motor_val)
-        
+
+    def enable_watchdog(self, timeout=1):
+        for axis in self.left_axes + self.right_axes:
+            axis.config.watchdog_timeout = timeout
+            axis.config.enable_watchdog = True
+
+    def disable_watchdog(self):
+        for axis in self.left_axes + self.right_axes:
+            axis.config.enable_watchdog = False
+ 
+    
     def feed_watchdog(self):
         for axis in self.left_axes + self.right_axes:
             axis.watchdog_feed()
+
+    def clear_watchdog(self):
+        # Clears watchdog timeout error will preserving other errors
+        for axis in self.left_axes + self.right_axes:
+            axis.error = axis.error & ~AXIS_ERROR_WATCHDOG_TIMER_EXPIRED
 
     @property
     def connected(self):
