@@ -21,8 +21,8 @@
         <param name="tyre_circumference" value="0.03852"/>
         <param name ="odrive_sn" value="205F37905753"/>
         <param name ="axis_for_right" value="1"/>
-        <param name ="flip_left_direction" value="true"/>
-        <param name ="flip_right_direction" value="true"/>
+        <param name ="flip_left_direction" value="false"/>
+        <param name ="flip_right_direction" value="false"/>
 
         <param name="odom_frame"   value="$(arg odom_frame)"/>
         <param name="base_frame" value="$(arg base_frame)"/>
