@@ -231,11 +231,19 @@ class ODriveNode(object):
         rospy.loginfo("Connecting to ODrive...")
 
         if self.dual_odrive:
-            raise NotImplemented("Dual odrive setup")
+            if not self.driver.connect(
+                left_sn = self.left_sn,
+                right_sn = self.right_sn,
+                flip_left_direction=self.flip_left_direction,
+                flip_right_direction=self.flip_right_direction):
+            
+                return False
         else:
             if not self.driver.connect(
                 odrive_sn = self.odrive_sn,
-                right_axis=self.axis_for_right):
+                right_axis=self.axis_for_right,
+                flip_left_direction=self.flip_left_direction,
+                flip_right_direction=self.flip_right_direction):
             
                 return False
             
@@ -362,8 +370,8 @@ class ODriveNode(object):
 def start_odrive():
     rospy.init_node('odrive')
     odrive_node = ODriveNode()  
-    odrive_node.main_loop()
-    #rospy.spin() 
+    if odrive_node.driver.connected:
+        odrive_node.main_loop()
     
 if __name__ == '__main__':
     try:
