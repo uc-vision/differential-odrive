@@ -1,12 +1,12 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>odrive_ros</name>
+  <name>differential_odrive</name>
   <version>0.8.1</version>
   <description>ODrive motor controller driver for ROS</description>
   <license>Modified BSD</license>
 
-  <maintainer email="josh.marshall@tecevo.com">Josh Marshall, Tecevo</maintainer>
-  <url type="website">https://github.com/neomanic/odrive_ros</url>
+  <maintainer email="josh.mcculloch@canterbury.ac.nz">Josh McCulloch</maintainer>
+  <url type="website">https://github.com/uc-vision/differential-odrive</url>
 
   <buildtool_depend>catkin</buildtool_depend>
   <build_depend>rospy</build_depend>
@@ -17,8 +17,6 @@
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>
-  <exec_depend>diagnostic_msgs</exec_depend>
-  <exec_depend>diagnostic_updater</exec_depend>
   
   <exec_depend>ODrive</exec_depend>
 
