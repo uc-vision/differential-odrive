@@ -59,8 +59,8 @@ class ODriveNode(object):
 
         self.dual_odrive = get_param('~dual_odrive', False)
         self.odrive_sn = get_param('~odrive_sn', None)
-        self.left_sn = get_param('~left_sn')
-        self.right_sn = get_param('~right_sn')
+        self.left_sn = get_param('~left_sn', None)
+        self.right_sn = get_param('~right_sn', None)
         
         self.axis_for_right = float(get_param('~axis_for_right', 0)) # if right calibrates first, this should be 0, else 1
         self.flip_left_direction = float(get_param('~flip_left_direction', False))
