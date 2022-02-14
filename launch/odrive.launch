@@ -23,6 +23,7 @@
         <param name ="axis_for_right" value="1"/>
         <param name ="flip_left_direction" value="false"/>
         <param name ="flip_right_direction" value="false"/>
+        <param name ="loop_rate" value="50"/>
 
         <param name="odom_frame"   value="$(arg odom_frame)"/>
         <param name="base_frame" value="$(arg base_frame)"/>

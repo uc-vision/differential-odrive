@@ -59,8 +59,8 @@ class ODriveNode(object):
 
         self.dual_odrive = get_param('~dual_odrive', False)
         self.odrive_sn = get_param('~odrive_sn', None)
-        self.left_sn = get_param('~left_sn', None)
-        self.right_sn = get_param('~right_sn', None)
+        self.left_sn = get_param('~left_sn')
+        self.right_sn = get_param('~right_sn')
         
         self.axis_for_right = float(get_param('~axis_for_right', 0)) # if right calibrates first, this should be 0, else 1
         self.flip_left_direction = float(get_param('~flip_left_direction', False))
@@ -80,7 +80,7 @@ class ODriveNode(object):
         self.odom_topic      = get_param('~odom_topic', "odom")
         self.odom_frame      = get_param('~odom_frame', "odom")
         self.base_frame      = get_param('~base_frame', "base_link")
-        self.odom_calc_hz    = get_param('~odom_calc_hz', 10)
+        self.loop_rate    = get_param('~loop_rate', 50)
         
         self.fast_timer = None
 
@@ -156,7 +156,7 @@ class ODriveNode(object):
 
         
     def main_loop(self):
-        main_rate = rospy.Rate(float(self.odom_calc_hz))
+        main_rate = rospy.Rate(float(self.loop_rate))
 
         if self.calibrate_on_startup:
             self.driver.preroll()
@@ -279,14 +279,20 @@ class ODriveNode(object):
         self.theta = 0.0
         return(True, "Odometry reset.")
     
-    def convert(self, forward, ccw):
+    def twist2diff(self, forward, ccw):
         angular_to_linear = ccw * (self.wheel_track/2.0) 
-        left_linear_val  = (forward - angular_to_linear) / self.tyre_circumference
-        right_linear_val = (forward + angular_to_linear) / self.tyre_circumference
+        left_linear_val  = float((forward - angular_to_linear) / self.tyre_circumference)
+        right_linear_val = float((forward + angular_to_linear) / self.tyre_circumference)
+    
         return left_linear_val, right_linear_val
 
+    def diff2twist(self, left, right ):
+        forward = ((left+right) / 2) * self.tyre_circumference
+        ccw = ((right-left) / self.wheel_track) * self.tyre_circumference
+        return forward, ccw
+
     def cmd_vel_callback(self, msg):
-        left_linear_val, right_linear_val = self.convert(msg.linear.x, msg.angular.z)
+        left_linear_val, right_linear_val = self.twist2diff(msg.linear.x, msg.angular.z)
         self.command = (left_linear_val, right_linear_val)
         self.last_cmd_vel_time = rospy.Time.now()
         
@@ -304,13 +310,11 @@ class ODriveNode(object):
         self.odom_msg.header.stamp = now
         self.tf_msg.header.stamp = now
               
-        vel_l = self.driver.left_vel_estimate
-        vel_r = self.driver.right_vel_estimate
-        # Twist/velocity: calculated from motor values only
-        s = self.tyre_circumference * (vel_l+vel_r) / (2.0)
-        w = self.tyre_circumference * (vel_r-vel_l) / (self.wheel_track) # angle: vel_r*tyre_radius - vel_l*tyre_radius
-        self.odom_msg.twist.twist.linear.x = s
-        self.odom_msg.twist.twist.angular.z = w
+        forward, ccw = self.diff2twist(
+            self.driver.left_vel_estimate,
+            self.driver.right_vel_estimate)
+        self.odom_msg.twist.twist.linear.x = forward
+        self.odom_msg.twist.twist.angular.z = ccw
     
         self.new_pos_l = self.driver.left_pos
         self.new_pos_r = self.driver.right_pos
