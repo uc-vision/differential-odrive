@@ -22,7 +22,6 @@ from odrive_ros.odrive_interface import ChannelDamagedException
 from fibre.protocol import ObjectLostError as ChannelBrokenException
 from fibre.libfibre import ObjectLostError
 
-from odrive_ros.odrive_simulator import ODriveInterfaceSimulator
 
 class ROSLogger(object):
     """Imitate a standard Python logger, but pass the messages to rospy logging.
