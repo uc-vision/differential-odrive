@@ -16,7 +16,7 @@
     
     <node pkg="differential_odrive" type="odrive_node" name="odrive" ns="odrive" 
             output="$(arg output)" respawn="$(arg respawn)">
-        <!-- <remap from="/cmd_vel" to="/cmd_vel_mux/cmd_vel"/> -->
+        <remap from="/cmd_vel" to="/cmd_vel_mux/cmd_vel"/>
         <param name="wheel_track" value="0.77"/>
         <param name="tyre_circumference" value="0.03852"/>
         <param name ="odrive_sn" value="205F37905753"/>
