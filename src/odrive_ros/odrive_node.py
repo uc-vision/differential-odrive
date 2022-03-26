@@ -73,6 +73,7 @@ class ODriveNode(object):
         self.has_preroll     = get_param('~use_preroll', True)
                 
         self.publish_current = get_param('~publish_current', True)
+        self.publish_voltage = get_param('~publish_voltage', True)
         
         self.publish_odom    = get_param('~publish_odom', True)
         self.publish_tf      = get_param('~publish_odom_tf', False)
@@ -101,6 +102,9 @@ class ODriveNode(object):
             self.current_publisher_right = rospy.Publisher('right/current', Float64, queue_size=2)
          
             rospy.logdebug("ODrive will publish motor currents.")
+
+        if self.publish_voltage:
+            self.voltage_publisher  = rospy.Publisher('voltage', Float64, queue_size=2)
 
         self.last_cmd_vel_time = rospy.Time.now()
                                   
@@ -183,6 +187,8 @@ class ODriveNode(object):
                 self.pub_temperatures()
             if self.publish_current:
                 self.pub_current()
+            if self.publish_voltage:
+                self.pub_voltage()
 
             if self.command is not None:
                 if not self.driver.prerolled:
@@ -303,6 +309,9 @@ class ODriveNode(object):
     def pub_current(self):
         self.current_publisher_left.publish(self.driver.left_current)
         self.current_publisher_right.publish(self.driver.right_current)
+
+    def pub_current(self):
+        self.voltage_publisher.publish(self.driver.bus_voltage)
         
     def pub_odometry(self, time_now):
         now = time_now
