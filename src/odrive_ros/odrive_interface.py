@@ -82,6 +82,7 @@ class ODriveInterfaceAPI(object):
         self.flip_right_direction = flip_right_direction        
 
         self.disable_watchdog()
+        self.get_errors(True)
         self.clear_watchdog()
 
         # Any watchdog timeouts will have been cleared. For all other errors we will reboot the odrive.
