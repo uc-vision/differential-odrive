@@ -192,6 +192,7 @@ class ODriveNode(object):
                 elif not self.driver.engaged:
                     rospy.logwarn_throttle(5.0, "ODrive is not engaged, engaging now.")
                     self.driver.engage()
+                    rospy.logwarn("ERRORS:"+self.driver.get_errors())
 
                 else:      
                     left_linear_val, right_linear_val = self.command

@@ -17,7 +17,7 @@
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>
-  
+  <exec_depend>geometry</exec_depend>  
   <exec_depend>ODrive</exec_depend>
 
   <export>

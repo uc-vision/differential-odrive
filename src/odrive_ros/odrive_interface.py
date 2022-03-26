@@ -283,6 +283,7 @@ class ODriveInterfaceAPI(object):
         
         if axis_error:
             return error_string
+        return ""
 
     def flip_l(self, value):
         return -value if self.flip_left_direction else value
