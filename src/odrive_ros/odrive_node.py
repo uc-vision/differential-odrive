@@ -311,7 +311,7 @@ class ODriveNode(object):
         self.current_publisher_left.publish(self.driver.left_current)
         self.current_publisher_right.publish(self.driver.right_current)
 
-    def pub_current(self):
+    def pub_voltage(self):
         self.voltage_publisher.publish(self.driver.bus_voltage)
         
     def pub_odometry(self, time_now):
