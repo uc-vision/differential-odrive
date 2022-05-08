@@ -2,7 +2,7 @@
 
 import rospy
 import tf.transformations
-import tf_conversions
+from .utils import quaternion_from_euler
 import tf2_ros
 
 import std_msgs.msg
@@ -12,6 +12,9 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import JointState
 import std_srvs.srv
 
+from dynamic_reconfigure.server import Server
+from dynamic_reconfigure.client import Client
+from differential_odrive.cfg import ControllerConfig
 
 import time
 import math
@@ -81,6 +84,9 @@ class ODriveNode(object):
         self.odom_frame      = get_param('~odom_frame', "odom")
         self.base_frame      = get_param('~base_frame', "base_link")
         self.loop_rate    = get_param('~loop_rate', 50)
+
+        self.controller_config = ControllerConfig
+        self.reconfigure_server = Server(ControllerConfig, self.reconfigure_callback)
         
         self.fast_timer = None
 
@@ -156,6 +162,12 @@ class ODriveNode(object):
         else:
             self.old_pos_l = self.driver.left_pos
             self.old_pos_r = self.driver.right_pos
+
+
+    def reconfigure_callback(self, config, level):
+        self.controller_config = config
+        rospy.loginfo(str(config))
+        return config
 
         
     def main_loop(self):
@@ -358,7 +370,7 @@ class ODriveNode(object):
         
         self.odom_msg.pose.pose.position.x = self.x
         self.odom_msg.pose.pose.position.y = self.y
-        q = tf_conversions.transformations.quaternion_from_euler(0.0, 0.0, self.theta)
+        q = quaternion_from_euler(0.0, 0.0, self.theta)
         self.odom_msg.pose.pose.orientation.z = q[2] # math.sin(self.theta)/2
         self.odom_msg.pose.pose.orientation.w = q[3] # math.cos(self.theta)/2
     
