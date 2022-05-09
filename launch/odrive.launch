@@ -14,6 +14,7 @@
     <arg name="output"   default="screen"/>
     <arg name="respawn"   default="false"/>
 
+    <arg name="torque_control" default="false"/>
     <arg name="velo_p" default="1"/>
     <arg name="velo_i" default="0"/>
     <arg name="velo_d" default="0"/>
@@ -32,6 +33,7 @@
         <param name ="flip_right_direction" value="false"/>
         <param name ="loop_rate" value="50"/>
 
+        <param name="torque_control" value="$(arg torque_control)"/>
         <param name="velo_p" value="$(arg velo_p)"/>
         <param name="velo_i" value="$(arg velo_i)"/>
         <param name="velo_d" value="$(arg velo_d)"/>

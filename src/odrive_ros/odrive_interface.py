@@ -39,7 +39,8 @@ class ODriveInterfaceAPI(object):
         self.left_axes = []
         self.right_axes = []
      
-    def connect(self, odrive_sn=None, left_sn=None, right_sn=None, right_axis=0, flip_left_direction=False, flip_right_direction=False, timeout=30, attempts=4):
+    def connect(self, odrive_sn=None, left_sn=None, right_sn=None, right_axis=0, flip_left_direction=False, flip_right_direction=False, 
+        torque_control=False, timeout=30, attempts=4):
         # Setup a single odrive with each axis controlling one side
         if odrive_sn is not None:
             self.logger.info("Single odrive mode")
@@ -79,7 +80,8 @@ class ODriveInterfaceAPI(object):
             self.logger.info("Connected to %s %s" %(odrv_name,  self.get_version_string(self.odrives[odrv_name])))
 
         self.flip_left_direction = flip_left_direction
-        self.flip_right_direction = flip_right_direction        
+        self.flip_right_direction = flip_right_direction   
+        self.torque_control = torque_control     
 
         self.disable_watchdog()
         self.get_errors(True)
@@ -209,7 +211,10 @@ class ODriveInterfaceAPI(object):
         for axis in self.left_axes + self.right_axes:
             axis.controller.input_vel = 0
             axis.requested_state = AXIS_STATE_CLOSED_LOOP_CONTROL
-            axis.controller.config.control_mode = CONTROL_MODE_VELOCITY_CONTROL
+            if self.torque_control:
+                axis.controller.config.control_mode = CONTROL_MODE_TORQUE_CONTROL
+            else:
+                axis.controller.config.control_mode = CONTROL_MODE_VELOCITY_CONTROL
         
         return True
         
@@ -227,9 +232,15 @@ class ODriveInterfaceAPI(object):
             return
         
         for axis in self.left_axes:
-            axis.controller.input_vel = self.flip_l(left_motor_val)
+            if self.torque_control:
+                axis.controller.input_torque = self.flip_l(left_motor_val)
+            else:
+                axis.controller.input_vel = self.flip_l(left_motor_val)
         for axis in self.right_axes:
-            axis.controller.input_vel = self.flip_r(right_motor_val)
+            if self.torque_control:
+                axis.controller.input_torque = self.flip_r(right_motor_val)
+            else:
+                axis.controller.input_vel = self.flip_r(right_motor_val)
 
     def enable_watchdog(self, timeout=1):
         for axis in self.left_axes + self.right_axes:

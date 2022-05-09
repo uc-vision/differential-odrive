@@ -85,12 +85,13 @@ class ODriveNode(object):
         self.base_frame      = get_param('~base_frame', "base_link")
         self.loop_rate       = get_param('~loop_rate', 50)
 
-        self.controller_config = ControllerConfig
-        self.reconfigure_server = Server(ControllerConfig, self.reconfigure_callback)
+        self.torque_control  = get_param('~torque_control', False)
+        if self.torque_control:
+            self.turn_pid = PID(0,0,0)
+            self.velo_pid = PID(0,0,0)
+            self.controller_config = ControllerConfig
+            self.reconfigure_server = Server(ControllerConfig, self.reconfigure_callback)
 
-        self.turn_pid = PID(0,0,0)
-        self.velo_pid = PID(0,0,0)
-        
         rospy.Service('calibrate_motors',         std_srvs.srv.Trigger, self.calibrate_motor)
         rospy.Service('engage_motors',            std_srvs.srv.Trigger, self.engage_motor)
         rospy.Service('release_motors',           std_srvs.srv.Trigger, self.release_motor)
@@ -202,16 +203,18 @@ class ODriveNode(object):
                 self.pub_voltage()
 
             # if the cmd is stale set it to zero
-            if (time_now - self.last_cmd_vel_time).to_sec() > 0.5 and self.command[0] == 0 and self.command[1] == 0:
+            if (time_now - self.last_cmd_vel_time).to_sec() > 0.5 and (self.command[0] != 0 or self.command[1] != 0):
+                rospy.logwarn("No cmd_vel received for %fs - zeroing velocity" %0.5 )
+                rospy.loginfo(f"{self.command[0]}, {self.command[1]}")
                 self.command = (0,0)
 
             # after 10sec disengage the motors
-            elif (time_now - self.last_cmd_vel_time).to_sec() > 10.0 and self.driver.engaged:
+            if (time_now - self.last_cmd_vel_time).to_sec() > 10.0 and self.driver.engaged:
                 rospy.logwarn("No cmd_vel received for %ds - disengaging motors" %10.0 )
                 self.driver.release()
 
             # other wise process the cmd
-            else:
+            elif (time_now - self.last_cmd_vel_time).to_sec() < 10.0:
                 if not self.driver.prerolled:
                     rospy.logwarn_throttle(5.0, "ODrive has not been prerolled, ignoring drive command.")
         
@@ -227,13 +230,14 @@ class ODriveNode(object):
                         self.driver.left_vel_estimate,
                         self.driver.right_vel_estimate)
                     
-                    if True:
+                    if not self.torque_control:
                         left_linear_val, right_linear_val = self.twist2diff(tgt_fwd, tgt_ccw)
                     else:
                         err_fwd = tgt_fwd - curr_fwd
                         err_ccw = tgt_ccw - curr_ccw
                         cmd_fwd = self.velo_pid.step(err_fwd)
-                        cmd_ccw = self.velo_pid.step(err_ccw)
+                        cmd_ccw = self.turn_pid.step(err_ccw)
+
                         left_linear_val, right_linear_val = self.twist2diff(cmd_fwd, cmd_ccw)
 
 
@@ -257,7 +261,8 @@ class ODriveNode(object):
                 left_sn = self.left_sn,
                 right_sn = self.right_sn,
                 flip_left_direction=self.flip_left_direction,
-                flip_right_direction=self.flip_right_direction):
+                flip_right_direction=self.flip_right_direction,
+                torque_control=self.torque_control):
             
                 return False
         else:
@@ -265,7 +270,8 @@ class ODriveNode(object):
                 odrive_sn = self.odrive_sn,
                 right_axis=self.axis_for_right,
                 flip_left_direction=self.flip_left_direction,
-                flip_right_direction=self.flip_right_direction):
+                flip_right_direction=self.flip_right_direction,
+                torque_control=self.torque_control):
             
                 return False
             

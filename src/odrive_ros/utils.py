@@ -1,4 +1,6 @@
 import rospy
+import math
+import numpy
 
 _AXES2TUPLE = {
     'sxyz': (0, 0, 0, 0), 'sxyx': (0, 0, 1, 0), 'sxzy': (0, 1, 0, 0),
@@ -11,6 +13,8 @@ _AXES2TUPLE = {
     'rzxz': (2, 0, 1, 1), 'rxyz': (2, 1, 0, 1), 'rzyz': (2, 1, 1, 1)}
 
 _TUPLE2AXES = dict((v, k) for k, v in _AXES2TUPLE.items())
+
+_NEXT_AXIS = [1, 2, 0, 1]
 
 
 def quaternion_from_euler(ai, aj, ak, axes='sxyz'):
