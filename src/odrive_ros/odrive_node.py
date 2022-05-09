@@ -2,7 +2,7 @@
 
 import rospy
 import tf.transformations
-from .utils import quaternion_from_euler
+from .utils import quaternion_from_euler, PID
 import tf2_ros
 
 import std_msgs.msg
@@ -83,20 +83,20 @@ class ODriveNode(object):
         self.odom_topic      = get_param('~odom_topic', "odom")
         self.odom_frame      = get_param('~odom_frame', "odom")
         self.base_frame      = get_param('~base_frame', "base_link")
-        self.loop_rate    = get_param('~loop_rate', 50)
+        self.loop_rate       = get_param('~loop_rate', 50)
 
         self.controller_config = ControllerConfig
         self.reconfigure_server = Server(ControllerConfig, self.reconfigure_callback)
+
+        self.turn_pid = PID(0,0,0)
+        self.velo_pid = PID(0,0,0)
         
-        self.fast_timer = None
-
-        rospy.on_shutdown(self.terminate)
-
         rospy.Service('calibrate_motors',         std_srvs.srv.Trigger, self.calibrate_motor)
         rospy.Service('engage_motors',            std_srvs.srv.Trigger, self.engage_motor)
         rospy.Service('release_motors',           std_srvs.srv.Trigger, self.release_motor)
                 
         self.command = (0,0)
+        self.last_cmd_vel_time = rospy.Time.now()
         self.vel_subscribe = rospy.Subscriber("/cmd_vel", Twist, self.cmd_vel_callback, queue_size=2)
         
         if self.publish_temperatures:
@@ -106,13 +106,9 @@ class ODriveNode(object):
         if self.publish_current:
             self.current_publisher_left  = rospy.Publisher('left/current', Float64, queue_size=2)
             self.current_publisher_right = rospy.Publisher('right/current', Float64, queue_size=2)
-         
-            rospy.logdebug("ODrive will publish motor currents.")
 
         if self.publish_voltage:
             self.voltage_publisher  = rospy.Publisher('voltage', Float64, queue_size=2)
-
-        self.last_cmd_vel_time = rospy.Time.now()
                                   
         if self.publish_odom:
             rospy.Service('reset_odometry',    std_srvs.srv.Trigger, self.reset_odometry)
@@ -167,6 +163,9 @@ class ODriveNode(object):
     def reconfigure_callback(self, config, level):
         self.controller_config = config
         rospy.loginfo(str(config))
+
+        self.turn_pid = PID(config.turn_p, config.turn_i, config.turn_d)
+        self.velo_pid = PID(config.velo_p, config.velo_i, config.velo_d)
         return config
 
         
@@ -186,8 +185,8 @@ class ODriveNode(object):
         while not rospy.is_shutdown():
             try:
                 main_rate.sleep()
-            except rospy.ROSInterruptException: # shutdown / stop ODrive??
-                break;
+            except rospy.ROSInterruptException: # shlutdown / stop ODrive??
+                break
 
             time_now = rospy.Time.now()
 
@@ -202,44 +201,49 @@ class ODriveNode(object):
             if self.publish_voltage:
                 self.pub_voltage()
 
-            if self.command is not None:
+            # if the cmd is stale set it to zero
+            if (time_now - self.last_cmd_vel_time).to_sec() > 0.5 and self.command[0] == 0 and self.command[1] == 0:
+                self.command = (0,0)
+
+            # after 10sec disengage the motors
+            elif (time_now - self.last_cmd_vel_time).to_sec() > 10.0 and self.driver.engaged:
+                rospy.logwarn("No cmd_vel received for %ds - disengaging motors" %10.0 )
+                self.driver.release()
+
+            # other wise process the cmd
+            else:
                 if not self.driver.prerolled:
                     rospy.logwarn_throttle(5.0, "ODrive has not been prerolled, ignoring drive command.")
-                    return
-            
+        
                 elif not self.driver.engaged:
                     rospy.logwarn_throttle(5.0, "ODrive is not engaged, engaging now.")
                     self.driver.engage()
                     rospy.logwarn("ERRORS:"+self.driver.get_errors())
 
                 else:      
-                    left_linear_val, right_linear_val = self.command
-    
+                    tgt_fwd, tgt_ccw = self.command
+
+                    curr_fwd, curr_ccw = self.diff2twist(
+                        self.driver.left_vel_estimate,
+                        self.driver.right_vel_estimate)
+                    
+                    if True:
+                        left_linear_val, right_linear_val = self.twist2diff(tgt_fwd, tgt_ccw)
+                    else:
+                        err_fwd = tgt_fwd - curr_fwd
+                        err_ccw = tgt_ccw - curr_ccw
+                        cmd_fwd = self.velo_pid.step(err_fwd)
+                        cmd_ccw = self.velo_pid.step(err_ccw)
+                        left_linear_val, right_linear_val = self.twist2diff(cmd_fwd, cmd_ccw)
+
+
                     self.driver.drive(left_linear_val, right_linear_val)
-                    self.last_speed = max(abs(left_linear_val), abs(right_linear_val))
-                    self.last_cmd_vel_time = time_now
-                    self.command = None
-        
 
-            if (time_now - self.last_cmd_vel_time).to_sec() > 0.5 and self.last_speed > 0:
-                self.driver.drive(0,0)
-                self.last_speed = 0
-                self.last_cmd_vel_time = time_now
-
-            if (time_now - self.last_cmd_vel_time).to_sec() > 10.0 and self.driver.engaged:
-                rospy.logwarn("No cmd_vel received for %ds - disengaging motors" %10.0 )
-                self.driver.release() # and release   
-
-        self.driver.disable_watchdog()
-    
-
-    def terminate(self):
-        if self.fast_timer:
-          self.fast_timer.shutdown()
-        
         if self.driver:
+            self.driver.disable_watchdog()
             self.driver.release()
     
+
     def connect_driver(self):
         if self.driver:
             raise Exception("Driver already connected.")
@@ -310,8 +314,7 @@ class ODriveNode(object):
         return forward, ccw
 
     def cmd_vel_callback(self, msg):
-        left_linear_val, right_linear_val = self.twist2diff(msg.linear.x, msg.angular.z)
-        self.command = (left_linear_val, right_linear_val)
+        self.command = (msg.linear.x, msg.angular.z)
         self.last_cmd_vel_time = rospy.Time.now()
         
     def pub_temperatures(self):
