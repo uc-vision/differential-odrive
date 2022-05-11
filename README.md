@@ -1,54 +1,149 @@
-# odrive_ros
-ROS driver for the [ODrive motor driver](https://odriverobotics.com/)
+# Differential Odrive drive for ROS
+A driver for differential drive robots using an ODrive motor controller.
 
-This is a basic pass at a ROS driver to operate the ODrive as a differential drive. It's Python-based, so not super-fast, but it'll get you started. Maybe in time this will have an optimised C++ version, but I woudn't count on it anytime soon. ;)
+### Key Features:
+- Supports two motors on a single odrive
+- Support four motors on two odrives
+- Supports velocity control using odrives control loops
+- Supports torque control using control loops in driver
 
-Future plans include adding a simulation mode so you can continue to use this driver in a simulation mode within gazebo.
+## Getting Started
 
-Feedback, issues and pull requests welcome.
-
-## Usage
-
-NEW INSTALL INSTRUCTIONS TO COME. CATKIN BUILD SEEMS TO WORK FINE
-
-then `rosrun odrive_ros odrive_node` will get you on your way. 
-
-There is a sample launch file showing the use of the wheelbase, tyre circumference, and encoder count parameters too, try `roslaunch odrive_ros odrive.launch` or copy it into your own package and edit the values to correspond to your particular setup.
-
-If you want to test out the driver separate from ROS, you can also install as a regular Python package.
-
-```sh
-roscd odrive_ros
-sudo pip install -e .
+Install odrivetool
+```
+pip install --upgrade odrive
 ```
 
-If you want to use a bare Python shell, see below for the import which exposes the ODrive with setup and drive functions. You can use either ODriveInterfaceAPI (uses USB) or ODriveInterfaceSerial (requires the /dev/ttyUSBx corresponding to the ODrive as parameter, but not tested recently).
+Build your catkin workspace
 
-```python
-from odrive_ros import odrive_interface
-od = odrive_interface.ODriveInterfaceAPI()
-od.connect()
-od.calibrate()      # does a calibration
-od.engage()         # get ready to drive
-od.drive(1000,1000) # drive axis0 and axis1
-od.release()        # done
+## Configuration
+
+### Two motor - Single Odrive
+```xml
+<launch>  
+    <node pkg="differential_odrive" type="odrive_node" name="odrive">
+        <!-- Vehicle Parameters -->
+        <param name="wheel_track" value="0.77"/>
+        <param name="tyre_circumference" value="0.03852"/>
+
+        <!-- Odrive Parameters -->
+        <param name ="odrive_sn" value="205F37905753"/>
+        <param name ="axis_for_right" value="1"/>
+        <param name ="flip_left_direction" value="false"/>
+        <param name ="flip_right_direction" value="false"/>
+
+        <!-- Driver Parameters -->
+        <param name ="loop_rate" value="50"/>
+
+        <param name="odom_frame"   value="odom"/>
+        <param name="base_frame" value="wheel_odom_link"/>
+        
+        <param name="connect_on_startup"   value="true"/>
+        <param name="calibrate_on_startup" value="true"/>
+        <param name="engage_on_startup"    value="true"/>
+        
+        <param name="publish_odom"         value="true"/>
+        <param name="publish_odom_tf"      value="false"/>
+        <param name="publish_current"      value="true"/>
+        <param name="publish_voltage"      value="true"/>  
+    </node>
+</launch>
 ```
 
-You can now (as of v0.5) use this wrapper from within an `odrivetool shell`. Once the shell has launched and connected to your ODrive, run the following, then you can use the commands as if in a bare Python interactive session above, and still get the help provided by odrivetool.
+### Four motor - Dual Odrive
+Dual odrive configuration is similar to the single. You need to specify you want dual odrive operation, along with the serial number of the odrive for each axis.
+```xml
+<launch>
+    <node pkg="differential_odrive" type="odrive_node" name="odrive">
+        <!-- Vehicle Parameters -->
+        <param name="wheel_track" value="0.77"/>
+        <param name="tyre_circumference" value="0.03852"/>
 
-```python
-import odrive_interface
-od = odrive_interface.ODriveInterfaceAPI(active_odrive=odrv0)
+        <!-- Odrive Parameters -->
+        <param name ="dual_odrive" value="true"/>
+        <param name ="left_sn" type="string" value="206E35925748"/>
+        <param name ="right_sn" type="string" value="205938915848"/>
+        <param name ="flip_left_direction" value="true"/>
+        <param name ="flip_right_direction" value="false"/>
+
+        <!-- Driver Parameters -->
+        <param name ="loop_rate" value="50"/>
+
+        <param name="odom_frame"   value="odom"/>
+        <param name="base_frame" value="wheel_odom_link"/>
+        
+        <param name="connect_on_startup"   value="true"/>
+        <param name="calibrate_on_startup" value="true"/>
+        <param name="engage_on_startup"    value="true"/>
+        
+        <param name="publish_odom"         value="true"/>
+        <param name="publish_odom_tf"      value="false"/>
+        <param name="publish_current"      value="true"/>
+        <param name="publish_voltage"      value="true"/>
+    </node>
+</launch>
+```
+
+### Torque control
+Controlling the torque directly can be useful if the velocity control loops on the odrive are not honouring the rotation component of the commanded velocity. This is can be the case on direct drive motors such as found on e-scooters. In the torque control mode we instead control the torque of each motor with a PID loop for turnning and a loop for velocity. 
+
+The values of these control loops are exposed via dynamic reconfigure allowing for real-time tunning.
+```xml
+<launch>
+    <arg name="torque_control" default="true"/>
+    <arg name="velo_p" default="1"/>
+    <arg name="velo_i" default="0"/>
+    <arg name="velo_d" default="0"/>
+    <arg name="turn_p" default="1"/>
+    <arg name="turn_i" default="0"/>
+    <arg name="turn_d" default="0"/>
+    
+    <node pkg="differential_odrive" type="odrive_node" name="odrive">
+        <!-- Vehicle Parameters -->
+        <param name="wheel_track" value="0.77"/>
+        <param name="tyre_circumference" value="0.03852"/>
+
+        <!-- Odrive Parameters -->
+        <param name ="odrive_sn" value="205F37905753"/>
+        <param name ="axis_for_right" value="1"/>
+        <param name ="flip_left_direction" value="false"/>
+        <param name ="flip_right_direction" value="false"/>
+
+        <!-- Torque Control Parameters -->
+        <param name="torque_control" value="$(arg torque_control)"/>
+        <param name="velo_p" value="$(arg velo_p)"/>
+        <param name="velo_i" value="$(arg velo_i)"/>
+        <param name="velo_d" value="$(arg velo_d)"/>
+        <param name="turn_p" value="$(arg turn_p)"/>
+        <param name="turn_i" value="$(arg turn_i)"/>
+        <param name="turn_d" value="$(arg turn_d)"/>
+        
+        <!-- Driver Parameters -->
+        <param name ="loop_rate" value="50"/>
+
+        <param name="odom_frame"   value="odom"/>
+        <param name="base_frame" value="wheel_odom_link"/>
+        
+        <param name="connect_on_startup"   value="true"/>
+        <param name="calibrate_on_startup" value="true"/>
+        <param name="engage_on_startup"    value="true"/>
+        
+        <param name="publish_odom"         value="true"/>
+        <param name="publish_odom_tf"      value="false"/>
+        <param name="publish_current"      value="true"/>
+        <param name="publish_voltage"      value="true"/>
+    </node>
+</launch>
 ```
 
 
-## Acknowledgements
+## Authors
+Josh McCulloch - [Github](https://github.com/joshmcculloch)
 
-Thanks to the ODrive team for a great little bit of hardware and the active community support. Hope this helps!
+## Acknowledgments
 
-- [ODrive homepage](https://odriverobotics.com)
-- [ODrive getting started](https://docs.odriverobotics.com)
-- [ODrive main repo](https://github.com/madcowswe/ODrive)
+Based on [odrive_ros](https://github.com/neomanic/odrive_ros) by Josh Marshall
 
-Thanks to Simon Birrell for his tutorial on [how to package a Python-based ROS package](http://www.artificialhumancompanions.com/structure-python-based-ros-package/).
+
+
 
