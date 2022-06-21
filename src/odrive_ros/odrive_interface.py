@@ -189,7 +189,6 @@ class ODriveInterfaceAPI(object):
 
         for axis in self.left_axes + self.right_axes:
             if axis.current_state != AXIS_STATE_CLOSED_LOOP_CONTROL:
-                self.logger.error(f"Wronge axis state {axis.current_state}")
                 return False
         return True 
     
