@@ -15,6 +15,7 @@ import std_srvs.srv
 from dynamic_reconfigure.server import Server
 from dynamic_reconfigure.client import Client
 from differential_odrive.cfg import ControllerConfig
+from differential_odrive.cfg import OdriveConfig
 
 import time
 import math
@@ -90,7 +91,9 @@ class ODriveNode(object):
             self.turn_pid = PID(0,0,0)
             self.velo_pid = PID(0,0,0)
             self.controller_config = ControllerConfig
-            self.reconfigure_server = Server(ControllerConfig, self.reconfigure_callback)
+            self.controller_reconfigure_server = Server(ControllerConfig, self.controller_reconfigure_callback)
+
+        
 
         rospy.Service('calibrate_motors',         std_srvs.srv.Trigger, self.calibrate_motor)
         rospy.Service('engage_motors',            std_srvs.srv.Trigger, self.engage_motor)
@@ -160,13 +163,32 @@ class ODriveNode(object):
             self.old_pos_l = self.driver.left_pos
             self.old_pos_r = self.driver.right_pos
 
+        if get_param('~odrive_reconfigure', False):
+            rospy.loginfo("Running odrive dynamic reconfigure")
+            self.odrive_reconfigure_server = Server(OdriveConfig, self.odrive_reconfigure_callback)
 
-    def reconfigure_callback(self, config, level):
+
+    def controller_reconfigure_callback(self, config, level):
         self.controller_config = config
         rospy.loginfo(str(config))
 
         self.turn_pid = PID(config.turn_p, config.turn_i, config.turn_d)
         self.velo_pid = PID(config.velo_p, config.velo_i, config.velo_d)
+        return config
+
+    def odrive_reconfigure_callback(self, config, level):
+        rospy.loginfo(str(config))
+        while not(self.driver.connected):
+            time.sleep(1)
+            
+
+        for axis in self.driver.left_axes + self.driver.right_axes:
+            axis.controller.config.vel_gain             = config["controller_vel_gain"]
+            axis.controller.config.vel_integrator_gain  = config["controller_vel_integrator_gain"]
+            axis.encoder.config.bandwidth               = config["encoder_bandwidth"]
+            axis.motor.config.current_control_bandwidth = config["motor_current_control_bandwidth"]
+            axis.motor.config.current_lim               = config["motor_current_lim"]
+
         return config
 
         
