@@ -9,6 +9,7 @@ import traceback
 
 import odrive
 from odrive.enums import *
+from odrive.utils import dump_errors
 
 import fibre
 from fibre.protocol import ChannelDamagedException
@@ -275,7 +276,7 @@ class ODriveInterfaceAPI(object):
         
         if not self.connected:
             return "disconnected"
-            
+
         axis_error = 0
         for axis in self.left_axes + self.right_axes:
             axis_error |= axis.error
@@ -284,6 +285,9 @@ class ODriveInterfaceAPI(object):
             axis_error |= axis.controller.error
         
         if axis_error:
+            for odrv in self.odrives.values():
+                dump_errors(odrv, self.logger.warn)
+
             error_string = "Errors(hex): "
             for axis in self.left_axes + self.right_axes:
                 error_string += "a%x m%x e%x c%x " %(axis.error,  axis.motor.error,  axis.encoder.error,  axis.controller.error)
