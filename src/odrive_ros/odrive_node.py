@@ -83,6 +83,7 @@ class ODriveNode(object):
         self.publish_tf      = get_param('~publish_odom_tf', False)
         self.odom_topic      = get_param('~odom_topic', "odom")
         self.odom_frame      = get_param('~odom_frame', "odom")
+        self.odom_covar_scale= get_param('~odom_covar_scale', 0.01)
         self.base_frame      = get_param('~base_frame', "base_link")
         self.loop_rate       = get_param('~loop_rate', 50)
 
@@ -415,6 +416,10 @@ class ODriveNode(object):
         #self.tf_msg.transform.rotation.x
         self.tf_msg.transform.rotation.z = q[2]
         self.tf_msg.transform.rotation.w = q[3]
+
+        self.odom_msg.twist.covariance[0]  = forward * self.odom_covar_scale
+        self.odom_msg.twist.covariance[7]  = forward * self.odom_covar_scale
+        self.odom_msg.twist.covariance[14] = forward * self.odom_covar_scale
         
         
         # ... and publish!
