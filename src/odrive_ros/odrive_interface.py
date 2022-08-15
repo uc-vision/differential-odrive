@@ -311,11 +311,11 @@ class ODriveInterfaceAPI(object):
 
     @property
     def left_vel_estimate(self):
-        return self.flip_l(self.left_axes[0].encoder.vel_estimate) 
+        return self.flip_l( min([axis.encoder.vel_estimate for axis in self.left_axes]) ) 
     
     @property
     def right_vel_estimate(self):
-        return self.flip_r(self.right_axes[0].encoder.vel_estimate)
+        return self.flip_r( min([axis.encoder.vel_estimate for axis in self.right_axes]) )
     
     @property
     def left_pos(self):
