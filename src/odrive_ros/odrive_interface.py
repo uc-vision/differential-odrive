@@ -212,6 +212,8 @@ class ODriveInterfaceAPI(object):
         for axis in self.left_axes + self.right_axes:
             axis.controller.input_vel = 0
             axis.requested_state = AXIS_STATE_CLOSED_LOOP_CONTROL
+            axis.controller.config.spinout_mechanical_power_threshold = -40
+            axis.controller.config.spinout_electrical_power_threshold = 40
             if self.torque_control:
                 axis.controller.config.control_mode = CONTROL_MODE_TORQUE_CONTROL
             else:
@@ -287,6 +289,7 @@ class ODriveInterfaceAPI(object):
         
         if axis_error:
             for odrv in self.odrives.values():
+                self.logger.warn(odrv.serial_number)
                 dump_errors(odrv, self.logger.warn)
 
             error_string = "Errors(hex): "
