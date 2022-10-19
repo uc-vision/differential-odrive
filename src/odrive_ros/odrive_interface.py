@@ -218,7 +218,7 @@ class ODriveInterfaceAPI(object):
                 axis.controller.config.control_mode = CONTROL_MODE_TORQUE_CONTROL
             else:
                 axis.controller.config.control_mode = CONTROL_MODE_VELOCITY_CONTROL
-                axis.controller.config.vel_ramp_rate = 0.5
+                axis.controller.config.vel_ramp_rate = 10.0
                 axis.controller.config.input_mode = INPUT_MODE_VEL_RAMP
         return True
         
